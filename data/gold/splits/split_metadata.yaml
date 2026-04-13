@@ -1,0 +1,107 @@
+version: 7
+strategy: day_block
+task: binary_classification
+target_column: label_binary
+evaluation_scope:
+  online_task: binary_detection
+  offline_analysis:
+  - per_attack_recall
+  - attack_family_breakdown
+n_rows_total: 15821973
+n_skipped: 0
+n_train: 13401869
+n_valid: 1045961
+n_test: 1374143
+train_days:
+- '2018-02-14'
+- '2018-02-15'
+- '2018-02-16'
+- '2018-02-20'
+- '2018-02-21'
+- '2018-02-22'
+- '2018-02-28'
+valid_days:
+- '2018-02-23'
+test_days:
+- '2018-03-01'
+- '2018-03-02'
+train_time_range:
+- '2018-02-14 01:00:00'
+- '2018-02-28 12:59:59'
+valid_time_range:
+- '2018-02-23 01:00:00'
+- '2018-02-23 12:59:59'
+test_time_range:
+- '2018-03-01 01:00:00'
+- '2018-03-02 12:59:59'
+attack_type_coverage:
+  train:
+  - Brute Force -Web
+  - Brute Force -XSS
+  - DDOS attack-HOIC
+  - DDOS attack-LOIC-UDP
+  - DDoS attacks-LOIC-HTTP
+  - DoS attacks-GoldenEye
+  - DoS attacks-Hulk
+  - DoS attacks-SlowHTTPTest
+  - DoS attacks-Slowloris
+  - FTP-BruteForce
+  - Infilteration
+  - SQL Injection
+  - SSH-Bruteforce
+  valid:
+  - Brute Force -Web
+  - Brute Force -XSS
+  - SQL Injection
+  test:
+  - Bot
+  - Infilteration
+  seen_in_test:
+  - Infilteration
+  unseen_in_valid: []
+  unseen_in_test:
+  - Bot
+attack_family_counts:
+  train:
+    DDOS attack-HOIC: 668461
+    DDoS attacks-LOIC-HTTP: 576191
+    DoS attacks-Hulk: 434873
+    SSH-Bruteforce: 117322
+    Infilteration: 68857
+    DoS attacks-GoldenEye: 41455
+    FTP-BruteForce: 39352
+    DoS attacks-SlowHTTPTest: 19462
+    DoS attacks-Slowloris: 10285
+    DDOS attack-LOIC-UDP: 1730
+    Brute Force -Web: 249
+    Brute Force -XSS: 79
+    SQL Injection: 34
+  valid:
+    Brute Force -Web: 362
+    Brute Force -XSS: 151
+    SQL Injection: 53
+  test:
+    Bot: 282310
+    Infilteration: 93040
+class_coverage:
+  train:
+  - label: '0'
+    count: 11423519
+    ratio: 0.852383
+  - label: '1'
+    count: 1978350
+    ratio: 0.147617
+  valid:
+  - label: '0'
+    count: 1045395
+    ratio: 0.999459
+  - label: '1'
+    count: 566
+    ratio: 0.000541
+  test:
+  - label: '0'
+    count: 998793
+    ratio: 0.726848
+  - label: '1'
+    count: 375350
+    ratio: 0.273152

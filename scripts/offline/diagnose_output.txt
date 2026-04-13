@@ -1,0 +1,75 @@
+
+=================================================================
+H1: Attack ratio at each stage
+=================================================================
+
+  train (raw):  14447830 rows | attack=1978916 (13.7%)
+    DDOS attack-HOIC                          668461 (33.8%)
+    DDoS attacks-LOIC-HTTP                    576191 (29.1%)
+    DoS attacks-Hulk                          434873 (22.0%)
+    SSH-Bruteforce                            117322 (5.9%)
+    Infilteration                              68857 (3.5%)
+    DoS attacks-GoldenEye                      41455 (2.1%)
+    FTP-BruteForce                             39352 (2.0%)
+    DoS attacks-SlowHTTPTest                   19462 (1.0%)
+    DoS attacks-Slowloris                      10285 (0.5%)
+    DDOS attack-LOIC-UDP                        1730 (0.1%)
+    Brute Force -Web                             611 (0.0%)
+    Brute Force -XSS                             230 (0.0%)
+    SQL Injection                                 87 (0.0%)
+
+  valid:    331027 rows | attack=  93040 (28.1%)
+    Infilteration                              93040 (100.0%)
+
+  test:   1043116 rows | attack= 282310 (27.1%)
+    Bot                                       282310 (100.0%)
+
+  train (after 2M proportional subsample, frac=0.138):
+    label_binary=0:  12468914 -> ~1726060 (86.3%)
+    label_binary=1:   1978916 -> ~ 273939 (13.7%)
+    Infiltration specifically: 68857 -> ~9531 rows in 2M subsample
+
+=================================================================
+H2: Top features for Infiltration detection specifically
+=================================================================
+
+  Top-20 features for Infiltration vs Benign:
+    Bwd Pkts/s                               F=906.8
+    CWE Flag Count                           F=629.4
+    Fwd URG Flags                            F=629.4
+    Flow Pkts/s                              F=140.5
+    Fwd Pkt Len Std                          F=122.7
+    Fwd Pkt Len Max                          F=97.4
+    Fwd Pkt Len Mean                         F=84.9
+    Fwd Seg Size Avg                         F=84.9
+    Init Fwd Win Byts                        F=75.2
+    Init Bwd Win Byts                        F=64.8
+    Flow IAT Min                             F=55.9
+    Fwd IAT Min                              F=53.9
+    Flow IAT Mean                            F=53.4
+    Fwd IAT Mean                             F=51.4
+    RST Flag Cnt                             F=48.8
+    ECE Flag Cnt                             F=48.8
+    Fwd Pkts/s                               F=41.1
+    Dst Port                                 F=30.7
+    Fwd IAT Max                              F=28.5
+    Pkt Len Max                              F=27.1
+
+  Bottom-5 features:
+    TotLen Bwd Pkts                          F=0.4
+    Active Std                               F=0.3
+    FIN Flag Cnt                             F=0.2
+    Bwd Pkt Len Mean                         F=0.0
+    Bwd Seg Size Avg                         F=0.0
+
+=================================================================
+H3: Feature distribution shift train(attack) vs valid(attack)
+=================================================================
+
+  Comparing attack traffic distributions (train vs valid):
+  Feature                                    Train mean   Valid mean    ratio
+  Bwd Pkts/s                                       0.00       387.45      infx
+  CWE Flag Count                                   0.00         0.00      infx
+  Fwd URG Flags                                    0.00         0.00      infx
+  Flow Pkts/s                                    118.36      2229.65    18.84x
+  Fwd Pkt Len Std                                  0.00         0.00      infx

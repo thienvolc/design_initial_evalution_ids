@@ -1,0 +1,146 @@
+1) Điểm mù lớn nhất: bạn chưa khóa experimental fairness
+
+Hiện plan có partitions, producer rate, trigger interval, executors, cores, memory, maxOffsetsPerTrigger, model type, feature set. Vấn đề là nếu thay nhiều biến cùng lúc, bạn sẽ không biết cái gì thực sự làm latency hay lag đổi.
+
+Bạn cần ép plan thành 3 lớp benchmark tách biệt:
+
+Layer A — system-only: giữ model cố định, chỉ đổi Kafka/Spark knobs
+Layer B — model cost: giữ ingestion/load cố định, chỉ đổi LR vs RF, full vs reduced
+Layer C — stress/failure: giữ pipeline cố định, chỉ đổi load shape và fault scenario
+
+Nếu không tách kiểu này, kết luận kiểu “RF chậm hơn” sẽ bị lẫn với “partition nhiều hơn”, “trigger ngắn hơn”, hoặc “burst load”. Đây là lỗi rất hay gặp trong paper thực nghiệm.
+
+2) Bạn nói “event-time aware”, nhưng chưa định nghĩa ground truth latency
+
+Bạn đã có event_time, ingest_time, emit_time. Tốt. Nhưng chưa nói rõ metric nào là metric chính.
+
+Tôi khuyên chốt luôn 3 latency chuẩn:
+
+source-to-ingest latency = ingest_time - event_time
+processing latency = emit_time - ingest_time
+end-to-end alert latency = emit_time - event_time
+
+Lý do: Spark micro-batch có thể xử lý rất nhanh nhưng nếu dữ liệu đến muộn hoặc Kafka lag tăng, processing latency đẹp mà end-to-end latency vẫn tệ. Spark Structured Streaming mặc định chạy theo micro-batch và hỗ trợ exactly-once qua checkpoint/WAL; nếu không tách rõ loại latency thì bạn rất dễ đánh giá sai pipeline.
+
+3) “Watermark” đang có tên, chưa có thí nghiệm
+
+Bạn ghi watermark, late event ratio, watermark delay. Tốt, nhưng mới dừng ở checklist.
+
+Điểm mù là: watermark không chỉ là setting, nó là trade-off trực tiếp giữa độ trễ, state size, và tỷ lệ drop late data. Spark định nghĩa watermark là mốc thời gian mà trước đó hệ thống giả định sẽ không còn dữ liệu muộn nữa; dữ liệu quá trễ có thể bị drop.
+
+Nên thêm hẳn 1 nhánh thí nghiệm:
+
+watermark = 0s / 10s / 30s / 60s
+đo: late-event ratio, state growth, memory pressure, end-to-end latency, FNR under lateness
+
+Nếu không có nhánh này thì phần “event-time aware” của bạn chỉ là trang trí.
+
+4) Bạn có reliability layer, nhưng chưa định nghĩa failure matrix
+
+Bạn đã ghi checkpointing, replay, retry/backoff, reconnect, dedup. Đúng. Nhưng chưa nói sẽ tiêm lỗi nào và đo recovery ra sao.
+
+Ít nhất phải có 4 fault scenarios:
+
+producer restart
+Kafka broker restart
+Spark query restart
+network slowdown / delayed producer
+
+Và với mỗi scenario, đo:
+
+restart recovery time
+duplicate ratio
+data loss ratio
+lag peak và time-to-drain
+
+Spark nói rõ checkpoint là nền tảng cho recovery/exactly-once; Kafka cũng chỉ đảm bảo mạnh khi config producer đúng.
+
+5) enable.idempotence có rồi, nhưng durability story của bạn vẫn chưa kín
+
+Bạn ghi idempotent producer và retry/backoff. Ổn. Nhưng với Kafka, idempotence chỉ đứng vững khi acks=all, retries>0, và max.in.flight.requests.per.connection<=5; nếu không bạn có thể mất idempotence hoặc bị reorder trong retry path.
+
+Nghĩa là bạn nên khóa cứng một profile producer benchmark, ví dụ:
+
+reliable profile: enable.idempotence=true, acks=all, retries=default/high, max.in.flight<=5
+low-latency profile: acks=1 để cố tình so với reliable profile
+
+Như vậy bạn mới có một trade-off rất sạch: latency vs durability. Kafka docs cũng nói acks=1 có thể mất record nếu leader fail trước khi follower replicate; acks=all là bảo đảm mạnh nhất hiện có.
+
+6) Topology 1 broker là hợp lý để làm thesis prototype, nhưng phải nói thẳng nó không benchmark fault tolerance của Kafka
+
+Bạn đã note điều này rồi. Tốt.
+Nhưng nên đẩy lên thành limitation chính thức trong methodology.
+
+Vì Kafka replication/fault tolerance thật sự phụ thuộc replica và ISR; không replication thì chỉ benchmark được ingestion/backpressure cơ bản, không benchmark được broker-level durability/failover.
+
+Nói gọn:
+1 broker = được cho performance study nhỏ
+1 broker = không đủ cho durability study nghiêm túc
+
+7) Bạn chưa khóa sink semantics
+
+Đây là điểm mù nhiều người bỏ qua. Bạn ghi predictions/alerts/metrics ra topic hoặc storage, nhưng chưa chốt sink nào là sink benchmark chính.
+
+Nếu sink là Kafka topic thì latency profile khác.
+Nếu sink là Parquet/CSV thì I/O khác.
+Nếu sink là Delta qua foreachBatch + merge thì phải cẩn thận vì Delta docs nói merge trong foreachBatch phải idempotent, và input-rate metrics có thể bị phóng đại do đọc lại batch nhiều lần.
+
+Tối ưu:
+
+benchmark chính: Kafka output topic
+benchmark lưu artifact: Parquet/Delta async or separate job
+đừng trộn “serving sink” với “analysis sink” trong cùng một phép so sánh
+8) Bạn đang thiếu query-progress instrumentation contract
+
+Bạn có list metric tốt, nhưng chưa nói metric lấy từ đâu.
+
+Cần chốt nguồn metric:
+
+Kafka lag: exporter / admin metrics
+Spark progress: StreamingQueryProgress
+system CPU/RAM: node exporter
+custom latency: metric trong app hoặc metrics topic
+detection metrics: offline evaluator / nearline join
+
+Prometheus khuyên instrumentation phải là phần tích hợp ngay trong code/service, không phải vá thêm sau; và metric type phải đúng bản chất, ví dụ queue size là gauge, request/error count là counter.
+
+Nói thẳng: nếu bạn không chốt data source cho từng metric ngay từ đầu, đến lúc chạy sẽ bị “có dashboard nhưng không có số dùng được”.
+
+9) Thiếu degradation policy định lượng
+
+Bạn có ghi adaptive throttling và degradation policy, nhưng chưa định nghĩa “khi nào degrade”.
+
+Nên đặt rule cứng kiểu:
+
+nếu lag > X trong Y giây → giảm producer rate
+nếu trigger duration > trigger interval liên tiếp N batch → hạ input rate hoặc tăng maxOffsetsPerTrigger profile
+nếu p95 end-to-end latency > SLA → chuyển từ full feature sang reduced feature
+nếu executor memory pressure > ngưỡng → dừng state-heavy path
+
+Đây mới là phần “operational trade-off” thật sự. Không có rule này thì bạn chỉ benchmark thụ động, chưa phân tích vận hành.
+
+10) Phần model còn thiếu serving cost realism
+
+Bạn đang so LR vs RF, full vs reduced/PCA. Hướng đúng.
+
+Nhưng điểm mù là chưa tách:
+
+feature prep cost
+model inference cost
+serialization/UDF cost
+
+Trong pipeline streaming, nhiều khi model không phải bottleneck; bottleneck là feature alignment, Python UDF crossing, hoặc schema/JSON parsing. Với project này, bạn nên ưu tiên:
+
+LR baseline
+RF baseline
+reduced-feature LR
+reduced-feature RF
+
+Rồi đo riêng:
+
+parse+validate
+feature transform
+inference
+sink
+
+Nếu không, bạn có thể kết luận sai rằng “RF quá nặng”, trong khi thật ra “Python UDF + JSON parsing” mới là thứ giết throughput.

@@ -1,0 +1,5 @@
+python scripts/offline/run_offline_pipeline.py --phases 2 3 4 --feature-set full
+
+python scripts/ablation_gbt.py
+
+python scripts/feature_sweep.py > scripts/feature_sweep_output.txt 2>&1

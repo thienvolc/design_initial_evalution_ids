@@ -1,0 +1,111 @@
+Reading silver parquet (timestamp + label columns only) ...
+Total rows: 15,821,973
+
+==========================================================================================
+Day                Total    Benign    Attack   Atk%  Attack types
+------------------------------------------------------------------------------------------
+2018-02-14     822,942   666,268   156,674  19.0%  FTP-BruteForce, SSH-Bruteforce
+2018-02-15   1,046,154   994,414    51,740   4.9%  DoS attacks-GoldenEye, DoS attacks-Slowloris
+2018-02-16     900,988   446,653   454,335  50.4%  DoS attacks-Hulk, DoS attacks-SlowHTTPTest
+2018-02-20   7,948,497 7,372,306   576,191   7.2%  DDoS attacks-LOIC-HTTP
+2018-02-21   1,031,018   360,827   670,191  65.0%  DDOS attack-HOIC, DDOS attack-LOIC-UDP
+2018-02-22   1,045,288 1,044,926       362   0.0%  Brute Force -Web, Brute Force -XSS, SQL Injection
+2018-02-23   1,045,961 1,045,395       566   0.1%  Brute Force -Web, Brute Force -XSS, SQL Injection
+2018-02-28     606,982   538,125    68,857  11.3%  Infilteration
+2018-03-01     331,027   237,987    93,040  28.1%  Infilteration
+2018-03-02   1,043,116   760,806   282,310  27.1%  Bot
+
+==========================================================================================
+Per-day attack type breakdown
+==========================================================================================
+
+  2018-02-14  (822,942 rows, 156,674 attack)
+    SSH-Bruteforce                            117,322  [02:01 - 03:32]
+    FTP-BruteForce                             39,352  [10:33 - 12:10]
+
+  2018-02-15  (1,046,154 rows, 51,740 attack)
+    DoS attacks-GoldenEye                      41,455  [09:27 - 10:02]
+    DoS attacks-Slowloris                      10,285  [11:00 - 11:42]
+
+  2018-02-16  (900,988 rows, 454,335 attack)
+    DoS attacks-Hulk                          434,873  [01:45 - 01:48]
+    DoS attacks-SlowHTTPTest                   19,462  [10:12 - 10:58]
+
+  2018-02-20  (7,948,497 rows, 576,191 attack)
+    DDoS attacks-LOIC-HTTP                    576,191  [01:14 - 11:16]
+
+  2018-02-21  (1,031,018 rows, 670,191 attack)
+    DDOS attack-HOIC                          668,461  [02:11 - 02:33]
+    DDOS attack-LOIC-UDP                        1,730  [10:08 - 10:43]
+
+  2018-02-22  (1,045,288 rows, 362 attack)
+    Brute Force -Web                              249  [10:13 - 11:23]
+    Brute Force -XSS                               79  [01:51 - 02:28]
+    SQL Injection                                  34  [01:52 - 11:09]
+
+  2018-02-23  (1,045,961 rows, 566 attack)
+    Brute Force -Web                              362  [09:17 - 11:02]
+    Brute Force -XSS                              151  [01:01 - 02:10]
+    SQL Injection                                  53  [03:05 - 10:53]
+
+  2018-02-28  (606,982 rows, 68,857 attack)
+    Infilteration                              68,857  [01:42 - 12:04]
+
+  2018-03-01  (331,027 rows, 93,040 attack)
+    Infilteration                              93,040  [02:00 - 10:54]
+
+  2018-03-02  (1,043,116 rows, 282,310 attack)
+    Bot                                       282,310  [01:00 - 12:59]
+
+==========================================================================================
+Global attack family summary
+==========================================================================================
+  DDOS attack-HOIC                           668,461 ( 28.4%)  days: ['2018-02-21']
+  DDoS attacks-LOIC-HTTP                     576,191 ( 24.5%)  days: ['2018-02-20']
+  DoS attacks-Hulk                           434,873 ( 18.5%)  days: ['2018-02-16']
+  Bot                                        282,310 ( 12.0%)  days: ['2018-03-02']
+  Infilteration                              161,897 (  6.9%)  days: ['2018-02-28', '2018-03-01']
+  SSH-Bruteforce                             117,322 (  5.0%)  days: ['2018-02-14']
+  DoS attacks-GoldenEye                       41,455 (  1.8%)  days: ['2018-02-15']
+  FTP-BruteForce                              39,352 (  1.7%)  days: ['2018-02-14']
+  DoS attacks-SlowHTTPTest                    19,462 (  0.8%)  days: ['2018-02-16']
+  DoS attacks-Slowloris                       10,285 (  0.4%)  days: ['2018-02-15']
+  DDOS attack-LOIC-UDP                         1,730 (  0.1%)  days: ['2018-02-21']
+  Brute Force -Web                               611 (  0.0%)  days: ['2018-02-22', '2018-02-23']
+  Brute Force -XSS                               230 (  0.0%)  days: ['2018-02-22', '2018-02-23']
+  SQL Injection                                   87 (  0.0%)  days: ['2018-02-22', '2018-02-23']
+
+  Total attack: 2,354,266
+  Total benign: 13,467,707
+  Total:        15,821,973
+
+==========================================================================================
+Proposed seen-attack baseline split
+==========================================================================================
+
+  TRAIN: 13,399,697 rows | benign=11,139,399 (83.1%) | attack=2,260,298 (16.9%)
+    Days: ['2018-02-14', '2018-02-15', '2018-02-16', '2018-02-20', '2018-02-21', '2018-02-28', '2018-03-02']
+    Attack types: ['Bot', 'DDOS attack-HOIC', 'DDOS attack-LOIC-UDP', 'DDoS attacks-LOIC-HTTP', 'DoS attacks-GoldenEye', 'DoS attacks-Hulk', 'DoS attacks-SlowHTTPTest', 'DoS attacks-Slowloris', 'FTP-BruteForce', 'Infilteration', 'SSH-Bruteforce']
+      DDOS attack-HOIC                          668,461
+      DDoS attacks-LOIC-HTTP                    576,191
+      DoS attacks-Hulk                          434,873
+      Bot                                       282,310
+      SSH-Bruteforce                            117,322
+      Infilteration                              68,857
+      DoS attacks-GoldenEye                      41,455
+      FTP-BruteForce                             39,352
+      DoS attacks-SlowHTTPTest                   19,462
+      DoS attacks-Slowloris                      10,285
+      DDOS attack-LOIC-UDP                        1,730
+
+  VALID: 2,091,249 rows | benign=2,090,321 (100.0%) | attack=928 (0.0%)
+    Days: ['2018-02-22', '2018-02-23']
+    Attack types: ['Brute Force -Web', 'Brute Force -XSS', 'SQL Injection']
+      Brute Force -Web                              611
+      Brute Force -XSS                              230
+      SQL Injection                                  87
+
+  TEST: 331,027 rows | benign=237,987 (71.9%) | attack=93,040 (28.1%)
+    Days: ['2018-03-01']
+    Attack types: ['Infilteration']
+      Infilteration                              93,040

@@ -1,0 +1,10 @@
+pandas==2.2.2
+numpy==1.26.4
+pyarrow==15.0.2
+PyYAML==6.0.2
+pyspark==4.1.1
+confluent-kafka==2.3.0
+joblib==1.5.3
+scikit-learn==1.8.0
+streamlit==1.44.1
+prometheus-client==0.22.1

@@ -1,0 +1,64 @@
+{
+  "best_model": "random_forest",
+  "model_path": "D:\\school\\semester_6\\2_bigdata_is405\\05_project\\design_initial_evalution_ids\\artifacts\\models\\best_model.joblib",
+  "opt_threshold": 0.035,
+  "fpr_budget": 0.05,
+  "selection_metric": "recall@FPR<=5%",
+  "class_weight": true,
+  "valid_metrics": {
+    "accuracy": 0.94995,
+    "precision": 0.007288,
+    "recall": 0.676678,
+    "f1": 0.014421,
+    "fpr": 0.049902,
+    "fnr": 0.323322
+  },
+  "default_metrics": {
+    "recall": 0.429329,
+    "precision": 0.48503,
+    "f1": 0.455483,
+    "fpr": 0.000247
+  },
+  "operating_points": {
+    "fpr_1pct": {
+      "threshold": 0.173,
+      "recall": 0.558304,
+      "fpr": 0.009918,
+      "precision": 0.029577,
+      "f1": 0.056178
+    },
+    "fpr_3pct": {
+      "threshold": 0.068,
+      "recall": 0.628975,
+      "fpr": 0.029792,
+      "precision": 0.011302,
+      "f1": 0.022204
+    },
+    "fpr_5pct": {
+      "threshold": 0.035,
+      "recall": 0.676678,
+      "fpr": 0.049902,
+      "precision": 0.007288,
+      "f1": 0.014421
+    },
+    "fpr_10pct": {
+      "threshold": 0.014,
+      "recall": 0.720848,
+      "fpr": 0.095796,
+      "precision": 0.004058,
+      "f1": 0.00807
+    },
+    "default_0.5": {
+      "threshold": 0.5,
+      "recall": 0.429329,
+      "fpr": 0.000247,
+      "precision": 0.48503,
+      "f1": 0.455483
+    }
+  },
+  "timing": {
+    "train_time_s": 2194.0,
+    "valid_infer_time_s": 21.98,
+    "valid_rows_per_sec": 47595.0
+  }
+}

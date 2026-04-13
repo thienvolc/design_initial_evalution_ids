@@ -1,0 +1,5 @@
+run_tag,repeat_index,model,feature_set,ts_utc,rows,source_p95_ms,proc_p95_ms,e2e_p95_ms,avg_prediction_score,attack_ratio,precision,recall,f1,fpr,fnr,late_event_ratio,kafka_lag_records,driver_rss_mb,executor_mem_util_avg,status
+layerB_scaleup_r01_01_logistic_regression_reduced_1775362920245,1,logistic_regression,reduced,2026-04-05T04:34:27+00:00,11667,1.0,128860.0,128860.0,0.8867407067670378,0.9478872032227651,0.0,0.0,0.0,0.9478872032227651,0.0,0.49978572040798835,0,141.34765625,,ok
+layerB_scaleup_r01_02_random_forest_reduced_1775363667228,1,random_forest,reduced,2026-04-05T04:46:54+00:00,18333,1.0,227950.0,227951.0,0.1631639186674152,0.0,0.0,0.0,0.0,0.0,0.0,0.528827796869034,106667,140.77734375,,ok
+layerB_scaleup_r01_03_random_forest_full_1775364414372,1,random_forest,full,2026-04-05T05:24:14+00:00,,,,,,,,,,,,,,,,metrics_missing
+layerB_scaleup_r01_04_gradient_boosting_reduced_1775366654338,1,gradient_boosting,reduced,2026-04-05T05:36:45+00:00,20000,1.0,394044.0,394044.0,0.9996233455060487,1.0,0.73565,1.0,0.8476939475124593,1.0,0.0,0.5063,16667,141.01953125,,ok

@@ -1,0 +1,90 @@
+x-ids-common: &ids-common
+  build:
+    context: .
+    dockerfile: docker/base/Dockerfile
+  image: ids-spark-runtime:latest
+  working_dir: /workspace
+  environment: &ids-env
+    TZ: Asia/Ho_Chi_Minh
+    PYTHONPATH: /workspace/src
+    PYSPARK_PYTHON: python
+    PYSPARK_DRIVER_PYTHON: python
+    SPARK_LOCAL_IP: 127.0.0.1
+    KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  volumes: &ids-volumes
+    - ${PROJECT_DIR:-.}/configs:/workspace/configs
+    - ${PROJECT_DIR:-.}/experiments:/workspace/experiments
+    - ${PROJECT_DIR:-.}/scripts:/workspace/scripts
+    - ${PROJECT_DIR:-.}/src:/workspace/src
+    - ${PROJECT_DIR:-.}/data:/workspace/data
+    - ${PROJECT_DIR:-.}/artifacts:/workspace/artifacts
+    - ${PROJECT_DIR:-.}/logs:/workspace/logs
+    - ${PROJECT_DIR:-.}/docker/base/requirements.txt:/workspace/docker/base/requirements.txt:ro
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: ids-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: ids-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  ids-dev:
+    <<: *ids-common
+    container_name: ids-dev
+    depends_on:
+      - kafka
+    ports:
+      - "4040:4040"
+      - "9108:9108"
+    command: ["bash", "-lc", "sleep infinity"]
+    restart: unless-stopped
+
+  ids-benchmark:
+    <<: *ids-common
+    container_name: ids-benchmark
+    depends_on:
+      - kafka
+    command:
+      [
+        "bash",
+        "-lc",
+        "python scripts/streaming/run_benchmark_matrix.py --benchmark-config experiments/streaming/benchmark.yaml",
+      ]
+    profiles: ["benchmark"]
+    restart: "no"
+
+volumes:
+  zookeeper-data:
+  zookeeper-log:
+  kafka-data:
+
+

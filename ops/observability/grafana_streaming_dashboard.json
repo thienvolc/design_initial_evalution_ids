@@ -1,0 +1,134 @@
+{
+  "title": "IDS Streaming Runtime Telemetry",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Rows Per Second",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "ids_runtime_rows_per_sec",
+          "legendFormat": "{{run_tag}} / {{model_name}} / {{feature_set}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Batch Wall Time (ms)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "ids_runtime_batch_wall_ms",
+          "legendFormat": "{{run_tag}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "p95 Latency (Source / Processing / E2E)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "ids_runtime_latency_source_p95_ms",
+          "legendFormat": "source {{run_tag}}"
+        },
+        {
+          "expr": "ids_runtime_latency_processing_p95_ms",
+          "legendFormat": "processing {{run_tag}}"
+        },
+        {
+          "expr": "ids_runtime_latency_e2e_p95_ms",
+          "legendFormat": "e2e {{run_tag}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Kafka Lag and Late Event Ratio",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "ids_runtime_kafka_lag_records_total",
+          "legendFormat": "lag {{run_tag}}"
+        },
+        {
+          "expr": "ids_runtime_late_event_ratio",
+          "legendFormat": "late ratio {{run_tag}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Driver CPU and RSS",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "ids_runtime_driver_cpu_percent",
+          "legendFormat": "cpu {{run_tag}}"
+        },
+        {
+          "expr": "ids_runtime_driver_rss_mb",
+          "legendFormat": "rss {{run_tag}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Executor Memory Utilization",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "ids_runtime_executor_mem_util_avg",
+          "legendFormat": "avg {{run_tag}}"
+        },
+        {
+          "expr": "ids_runtime_executor_mem_util_p95",
+          "legendFormat": "p95 {{run_tag}}"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Active Streams",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "ids_runtime_active_streams"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 24}
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Exporter Up",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "ids_runtime_exporter_up"
+        }
+      ],
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 24}
+    }
+  ]
+}

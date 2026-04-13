@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Runtime outputs and large local datasets are mounted by volumes.
+logs/
+artifacts/
+data/
+
+# Documentation is not needed to build runtime image.
+docs/

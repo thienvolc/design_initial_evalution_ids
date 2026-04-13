@@ -1,0 +1,286 @@
+profiles:
+  _base_scale_up:
+    description: Shared defaults for scale-up profiles
+    args:
+      config: configs/streaming/online_scale_up.yaml
+
+  smoke_gate:
+    extends: _base_scale_up
+    description: Smoke gate with warmup (Layer B)
+    runtime: docker
+    script: scripts/streaming/run_layer_b_matrix.py
+    mode: official
+    resource_class: light
+    meta:
+      pass_fail:
+        required: true
+        min_rows_total: 20000
+        max_fnr: 0.40
+        max_fpr: 0.20
+    args:
+      warmup_rows: 15000
+      warmup_rate_schedule: "1000:15"
+      models: [logistic_regression]
+      feature_sets: [full]
+      repeats: 1
+      max_rows: 25000
+      batch_size: 2000
+      metrics_timeout_sec: 300
+      run_prefix: smoke50k
+      summary_csv: artifacts/streaming/scale_up/layer_b_summary_smoke_50k.csv
+
+  layer_a_500k:
+    extends: _base_scale_up
+    description: Layer A main ~500k (3 x 166,667) with warmup 50k per profile
+    runtime: docker
+    script: scripts/streaming/run_layer_a_matrix.py
+    mode: official
+    resource_class: heavy
+    meta:
+      rows_logic:
+        max_rows_is_per_profile: true
+        profile_count: 3
+        expected_main_rows_total: 500001
+        warmup_rows_per_profile: 50000
+        expected_warmup_rows_total: 150000
+      rate_schedule_note: schedule is a throughput envelope; replay stops early at max_rows per profile
+      pass_fail:
+        required: false
+        min_rows_total: 450000
+        max_e2e_p95_ms: 90000
+        min_rows_per_sec_avg: 150
+    args:
+      model: logistic_regression
+      feature_set: full
+      trace_input_parquet: data/gold/splits/test.parquet
+      trace_order_column: event_time
+      trace_rate_schedule: "5000:180,10000:120"
+      trace_stream_run_seconds: 420
+      warmup_rows: 50000
+      warmup_rate_schedule: "1000:50"
+      profiles:
+        - name: A_low
+          max_offsets_per_trigger: 500
+          shuffle_partitions: 4
+          trigger_interval: "10 seconds"
+        - name: A_mid
+          max_offsets_per_trigger: 2000
+          shuffle_partitions: 8
+          trigger_interval: "10 seconds"
+        - name: A_high
+          max_offsets_per_trigger: 8000
+          shuffle_partitions: 16
+          trigger_interval: "10 seconds"
+      repeats: 1
+      max_rows: 166667
+      batch_size: 5000
+      metrics_timeout_sec: 1500
+      run_prefix: layerA_scaleup
+      summary_csv: artifacts/streaming/scale_up/layer_a_summary_500k.csv
+
+  layer_b_light:
+    extends: _base_scale_up
+    description: Lightweight Layer B profile for debug/rerun
+    runtime: docker
+    script: scripts/streaming/run_layer_b_matrix.py
+    mode: official
+    resource_class: light
+    meta:
+      rows_logic:
+        max_rows_is_per_combo: true
+        combo_count: 2
+        expected_main_rows_total: 400000
+      combo_policy:
+        selected_pairs:
+          - "logistic_regression:reduced"
+          - "random_forest:reduced"
+      pass_fail:
+        required: false
+        min_rows_total: 300000
+        max_fnr: 0.35
+        max_fpr: 0.12
+    args:
+      trace_input_parquet: data/gold/splits/test.parquet
+      trace_order_column: event_time
+      trace_rate_schedule: "5000:120"
+      trace_stream_run_seconds: 300
+      warmup_rows: 20000
+      warmup_rate_schedule: "1000:20"
+      model_feature_pairs:
+        - "logistic_regression:reduced"
+        - "random_forest:reduced"
+      repeats: 1
+      max_rows: 200000
+      batch_size: 5000
+      metrics_timeout_sec: 900
+      run_prefix: layerB_light
+      summary_csv: artifacts/streaming/scale_up/layer_b_summary_light.csv
+
+  layer_b_500k:
+    extends: _base_scale_up
+    description: Layer B 500k with fairness + warmup
+    runtime: docker
+    script: scripts/streaming/run_layer_b_matrix.py
+    mode: official
+    resource_class: heavy
+    meta:
+      rows_logic:
+        max_rows_is_per_combo: true
+        combo_count: 4
+        expected_main_rows_total: 500000
+        warmup_rows_per_combo: 50000
+        expected_warmup_rows_total: 200000
+      combo_policy:
+        curated_minimal_set: true
+        dropped_pairs: ["logistic_regression:full", "gradient_boosting:full"]
+        selected_pairs:
+          - "logistic_regression:reduced"
+          - "random_forest:reduced"
+          - "random_forest:full"
+          - "gradient_boosting:reduced"
+      pass_fail:
+        required: false
+        min_rows_total: 450000
+        max_fnr: 0.30
+        max_fpr: 0.10
+    args:
+      trace_input_parquet: data/gold/splits/test.parquet
+      trace_order_column: event_time
+      trace_rate_schedule: "5000:180,10000:120"
+      trace_stream_run_seconds: 420
+      warmup_rows: 50000
+      warmup_rate_schedule: "1000:50"
+      model_feature_pairs:
+        - "logistic_regression:reduced"
+        - "random_forest:reduced"
+        - "random_forest:full"
+        - "gradient_boosting:reduced"
+      repeats: 1
+      max_rows: 125000
+      batch_size: 5000
+      metrics_timeout_sec: 1500
+      run_prefix: layerB_scaleup
+      summary_csv: artifacts/streaming/scale_up/layer_b_summary_500k.csv
+
+  watermark_500k:
+    extends: _base_scale_up
+    description: Watermark baseline with warmup
+    runtime: docker
+    script: scripts/streaming/run_watermark_matrix.py
+    mode: official
+    resource_class: heavy
+    meta:
+      pass_fail:
+        required: false
+        min_rows_total: 300000
+        max_late_event_ratio_delay_10: 0.02
+        max_late_event_ratio_delay_30: 0.05
+    args:
+      model: logistic_regression
+      feature_set: full
+      trace_input_parquet: data/gold/splits/test.parquet
+      trace_order_column: event_time
+      trace_rate_schedule: "5000:180,10000:120"
+      warmup_rows: 50000
+      warmup_rate_schedule: "1000:50"
+      watermark_delays: [0, 10, 30]
+      drop_late_events: true
+      max_rows: 125000
+      batch_size: 5000
+      metrics_timeout_sec: 1800
+      summary_csv: artifacts/streaming/scale_up/watermark_summary_500k.csv
+
+  watermark_late_injection_ablation:
+    extends: watermark_500k
+    description: Watermark variant with local reorder + lateness injection
+    mode: ablation
+    resource_class: heavy
+    meta:
+      pass_fail:
+        required: false
+    args:
+      reorder_window_size: 500
+      late_event_ratio: 0.15
+      late_event_max_sec: 8
+      summary_csv: artifacts/streaming/scale_up/watermark_summary_500k_reordered_late.csv
+
+  layer_c_700k_fault:
+    extends: _base_scale_up
+    description: Primary Layer C fault profile (single cycle)
+    runtime: host
+    script: scripts/streaming/run_layer_c_matrix.py
+    mode: official
+    resource_class: heavy
+    meta:
+      pass_fail:
+        required: false
+        min_recovery_events: 3
+        max_recovery_seconds: 120
+        max_dead_letter_ratio: 0.02
+    args:
+      model: logistic_regression
+      feature_set: full
+      trace_input_parquet: data/gold/splits/test.parquet
+      trace_order_column: event_time
+      scenarios: [kafka_restart, spark_process_restart, producer_restart, network_slowdown]
+      warmup_rows: 120000
+      warmup_rate_schedule: "5000:24"
+      fault_delay_sec: 45
+      post_fault_rows: 180000
+      post_fault_rows_per_sec: 10000
+      batch_size: 5000
+      stream_run_seconds: 1200
+      startup_wait_sec: 10
+      metrics_timeout_sec: 1200
+      replay_retries: 8
+      replay_retry_wait_sec: 5
+      summary_csv: artifacts/streaming/scale_up/layer_c_summary_700k_fault.csv
+
+  stress_main_testx4:
+    extends: _base_scale_up
+    description: Primary stress profile (reduced practical rows)
+    runtime: docker
+    script: scripts/streaming/run_load_quality_matrix.py
+    mode: official
+    resource_class: heavy
+    meta:
+      pass_fail:
+        required: false
+        min_rows_total: 120000
+        min_rows_per_sec_actual: 100
+        max_lag_records_peak: 50000
+    args:
+      model: logistic_regression
+      feature_set: full
+      trace_profile_name: trace_step_rate_main
+      warmup_rows: 120000
+      warmup_rate_schedule: "5000:24"
+      trace_rate_schedule: "5000:180,10000:180,20000:139.8286"
+      trace_max_rows: 150000
+      batch_size: 10000
+      metrics_timeout_sec: 3600
+      summary_csv: artifacts/streaming/scale_up/load_quality_summary_stress_full_testx4.csv
+
+  stress_bursty_testx4:
+    extends: _base_scale_up
+    description: Optional stress variant (bursty sensitivity/ablation)
+    runtime: docker
+    script: scripts/streaming/run_load_quality_matrix.py
+    mode: ablation
+    resource_class: heavy
+    meta:
+      pass_fail:
+        required: false
+    args:
+      model: logistic_regression
+      feature_set: full
+      trace_profile_name: trace_bursty_secondary
+      warmup_rows: 120000
+      warmup_rate_schedule: "5000:24"
+      trace_rate_schedule: "10000:120,30000:20,10000:120,40000:20,10000:120"
+      trace_max_rows: 5496572
+      batch_size: 10000
+      metrics_timeout_sec: 3600
+      summary_csv: artifacts/streaming/scale_up/load_quality_summary_bursty_trace.csv
+
+

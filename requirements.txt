@@ -1,0 +1,21 @@
+pyspark-stubs
+# Offline IDS Pipeline – CSE-CIC-IDS2018
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.8.0
+joblib==1.5.3
+pyarrow==15.0.2
+PyYAML==6.0.2
+
+# Optional: only needed if sampling.strategy = smote
+imbalanced-learn==0.12.4
+
+# Streaming
+pyspark==3.5.6
+confluent-kafka== 2.14.0
+
+# Phase 2 dashboard (optional)
+streamlit==1.44.1
+
+# Phase 3 local observability (optional)
+prometheus-client==0.22.1
