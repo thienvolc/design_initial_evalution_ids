@@ -35,6 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reset-checkpoint", action="store_true")
     parser.add_argument("--available-now", action="store_true")
     parser.add_argument("--run-seconds", type=int, default=0)
+    parser.add_argument("--stop-on-input-sentinel", action="store_true")
     return parser.parse_args()
 
 
@@ -60,6 +61,7 @@ def main() -> int:
             reset_checkpoint=args.reset_checkpoint,
             available_now=args.available_now,
             run_seconds=args.run_seconds,
+            stop_on_input_sentinel=args.stop_on_input_sentinel,
         )
     )
 

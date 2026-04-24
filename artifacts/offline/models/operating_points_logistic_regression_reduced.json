@@ -1,0 +1,42 @@
+{
+  "model": "logistic_regression",
+  "opt_threshold": 0.91,
+  "fpr_budget": 0.05,
+  "operating_points": {
+    "fpr_1pct": {
+      "threshold": 0.915,
+      "recall": 0.077739,
+      "fpr": 0.009747,
+      "precision": 0.0043,
+      "f1": 0.008149
+    },
+    "fpr_3pct": {
+      "threshold": 0.912,
+      "recall": 0.102473,
+      "fpr": 0.015976,
+      "precision": 0.003461,
+      "f1": 0.006696
+    },
+    "fpr_5pct": {
+      "threshold": 0.91,
+      "recall": 0.208481,
+      "fpr": 0.046865,
+      "precision": 0.002403,
+      "f1": 0.004751
+    },
+    "fpr_10pct": {
+      "threshold": 0.75,
+      "recall": 0.340989,
+      "fpr": 0.098161,
+      "precision": 0.001877,
+      "f1": 0.003734
+    },
+    "default_0.5": {
+      "threshold": 0.5,
+      "recall": 0.344523,
+      "fpr": 0.145872,
+      "precision": 0.001277,
+      "f1": 0.002545
+    }
+  }
+}

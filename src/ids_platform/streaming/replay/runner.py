@@ -10,6 +10,7 @@ from confluent_kafka import Producer
 
 from ids_platform.common.config import load_yaml_mapping
 from ids_platform.common.paths import resolve_project_path
+from ids_platform.streaming.config import resolve_kafka_bootstrap_servers
 from ids_platform.streaming.replay.config import parse_rate_schedule
 from ids_platform.streaming.replay.service import (
     apply_lateness,
@@ -43,6 +44,7 @@ class ReplayJobOptions:
     late_event_ratio: float = 0.0
     late_event_max_sec: float = 0.0
     random_seed: int = 42
+    emit_input_sentinel: bool = True
 
 
 def _log_replay_event(event: str, **fields) -> None:
@@ -52,6 +54,23 @@ def _log_replay_event(event: str, **fields) -> None:
             continue
         parts.append(f"{key}={value}")
     print(" ".join(parts), flush=True)
+
+
+def _build_input_sentinel_record(*, run_tag: str) -> dict:
+    now = datetime.now(timezone.utc)
+    epoch_ms = int(now.timestamp() * 1000)
+    return {
+        "flow_id": f"{run_tag}__input_sentinel",
+        "replay_run_tag": run_tag,
+        "event_time": now.isoformat(),
+        "timestamp": now.isoformat(),
+        "source_ingest_ts": now.isoformat(),
+        "source_ingest_epoch_ms": epoch_ms,
+        "label_binary": None,
+        "label": None,
+        "is_control_record": 1,
+        "control_type": "input_sentinel",
+    }
 
 
 def run_replay_job(options: ReplayJobOptions) -> int:
@@ -64,7 +83,9 @@ def run_replay_job(options: ReplayJobOptions) -> int:
 
 
     # ── runtime ─────────────────────────────────────────
-    bootstrap_servers = options.bootstrap_servers or str(kafka_config.get("bootstrap_servers", "localhost:9092"))
+    bootstrap_servers = resolve_kafka_bootstrap_servers(
+        options.bootstrap_servers or str(kafka_config.get("bootstrap_servers", "localhost:9092"))
+    )
     topic = options.topic or str(kafka_config.get("input_topic", "ids.raw.flows"))
     input_parquet = resolve_project_path(
         options.input_parquet or str(paths_config.get("input_parquet", "data/gold/splits/test.parquet"))
@@ -87,6 +108,8 @@ def run_replay_job(options: ReplayJobOptions) -> int:
         "Timestamp",
         "label_binary",
         "label",
+        "is_control_record",
+        "control_type",
         *feature_columns,
     ]
 
@@ -135,6 +158,7 @@ def run_replay_job(options: ReplayJobOptions) -> int:
         reorder_window_size=options.reorder_window_size,
         late_event_ratio=options.late_event_ratio,
         late_event_max_sec=options.late_event_max_sec,
+        emit_input_sentinel=bool(options.emit_input_sentinel),
     )
 
 
@@ -179,7 +203,12 @@ def run_replay_job(options: ReplayJobOptions) -> int:
 
         for row_index, (_, row) in enumerate(chunk.iterrows(), start=sent_rows):
             record = row.copy()
-            record["source_ingest_ts"] = datetime.now(timezone.utc).isoformat()
+            source_ingest_epoch_ms = int(time.time() * 1000)
+            record["source_ingest_ts"] = datetime.fromtimestamp(
+                source_ingest_epoch_ms / 1000.0,
+                tz=timezone.utc,
+            ).isoformat()
+            record["source_ingest_epoch_ms"] = source_ingest_epoch_ms
             record["replay_run_tag"] = options.run_tag
             record = normalize_flow_id(record, row_index=row_index)
             producer.produce(
@@ -224,6 +253,31 @@ def run_replay_job(options: ReplayJobOptions) -> int:
                 elapsed_sec=f"{time.perf_counter() - replay_started_at:.2f}",
             )
 
+    if options.emit_input_sentinel:
+        sentinel_record = _build_input_sentinel_record(run_tag=options.run_tag)
+        producer.produce(
+            topic=topic,
+            key=str(sentinel_record["flow_id"]),
+            value=to_json_value(sentinel_record),
+            on_delivery=on_delivery,
+        )
+        remaining_messages = producer.flush()
+        if remaining_messages:
+            delivery_failures.append(
+                f"flush_incomplete topic={topic} sentinel_remaining_messages={remaining_messages}"
+            )
+        if delivery_failures:
+            failure_details = "\n".join(delivery_failures[:10])
+            raise RuntimeError(
+                f"Replay delivery failed after sentinel publish for run_tag={options.run_tag}.\n{failure_details}"
+            )
+        _log_replay_event(
+            "input_sentinel_emitted",
+            run_tag=options.run_tag,
+            topic=topic,
+            control_type="input_sentinel",
+        )
+
 
     # ── stop ───────────────────────────────────────────
     elapsed = max(time.perf_counter() - started, 1e-9)
@@ -251,5 +305,6 @@ def run_replay_job(options: ReplayJobOptions) -> int:
         rows_per_sec_target=(options.rows_per_sec if options.rows_per_sec > 0 else None),
         reorder_window_size=(options.reorder_window_size if options.reorder_window_size > 1 else None),
         late_event_ratio=(options.late_event_ratio if options.late_event_ratio > 0 else None),
+        input_sentinel_emitted=bool(options.emit_input_sentinel),
     )
     return 0

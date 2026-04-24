@@ -1,11 +1,39 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from ids_platform.common.config import load_yaml_mapping
 from ids_platform.common.paths import resolve_project_path
+
+
+def resolve_kafka_bootstrap_servers(
+    configured_bootstrap_servers: str,
+    *,
+    execution_mode: str = "",
+) -> str:
+    override = str(os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "")).strip()
+    if override:
+        return override
+
+    bootstrap_servers = str(configured_bootstrap_servers or "").strip() or "localhost:9092"
+    mode = str(execution_mode or os.environ.get("IDS_EXECUTION_MODE", "")).strip().lower()
+    if mode == "host":
+        resolved_servers: list[str] = []
+        for raw_server in bootstrap_servers.split(","):
+            server = raw_server.strip()
+            if not server:
+                continue
+            if server == "kafka" or server.startswith("kafka:"):
+                _, separator, port = server.partition(":")
+                # Docker-internal listener `kafka:29092` is exposed to the host as `localhost:9092`.
+                resolved_servers.append("localhost:9092" if port == "29092" or not separator else f"localhost:{port}")
+                continue
+            resolved_servers.append(server)
+        return ",".join(resolved_servers) or "localhost:9092"
+    return bootstrap_servers
 
 
 @dataclass(frozen=True)
@@ -118,7 +146,9 @@ def _build_latency_config(runtime_cfg: dict[str, Any]) -> LatencyConfig:
 def _build_kafka_config(raw_cfg: dict[str, Any]) -> KafkaConfig:
     kafka_cfg = raw_cfg.get("kafka") or {}
     return KafkaConfig(
-        bootstrap_servers=str(kafka_cfg.get("bootstrap_servers", "localhost:9092")),
+        bootstrap_servers=resolve_kafka_bootstrap_servers(
+            str(kafka_cfg.get("bootstrap_servers", "localhost:9092"))
+        ),
         input_topic=str(kafka_cfg.get("input_topic", "ids.raw.flows")),
         output_topic=str(kafka_cfg.get("output_topic", "ids.predictions.binary")),
         metrics_topic=str(kafka_cfg.get("metrics_topic", "ids.metrics")),

@@ -126,7 +126,22 @@ class StreamingEntrypointIntegrationTests(unittest.TestCase):
 
             self._write_csv(
                 layer_a,
-                ["status", "profile", "max_offsets_per_trigger", "shuffle_partitions", "trigger_interval", "rows_per_sec_avg", "e2e_p95_ms_max", "driver_rss_mb_avg", "executor_mem_util_avg"],
+                [
+                    "status",
+                    "profile",
+                    "max_offsets_per_trigger",
+                    "shuffle_partitions",
+                    "trigger_interval",
+                    "load_profile",
+                    "rows_per_sec_avg",
+                    "source_to_emit_p95_ms_max",
+                    "e2e_p95_ms_max",
+                    "watermark_delay_sec",
+                    "metric_warnings",
+                    "driver_cpu_percent_avg",
+                    "driver_rss_mb_avg",
+                    "executor_mem_util_avg",
+                ],
                 [
                     {
                         "status": "ok",
@@ -134,8 +149,13 @@ class StreamingEntrypointIntegrationTests(unittest.TestCase):
                         "max_offsets_per_trigger": "2000",
                         "shuffle_partitions": "8",
                         "trigger_interval": "10 seconds",
+                        "load_profile": "A_mid",
                         "rows_per_sec_avg": "100.0",
+                        "source_to_emit_p95_ms_max": "50.0",
                         "e2e_p95_ms_max": "50.0",
+                        "watermark_delay_sec": "0",
+                        "metric_warnings": "driver_cpu_percent_unavailable_without_psutil",
+                        "driver_cpu_percent_avg": "10.0",
                         "driver_rss_mb_avg": "256.0",
                         "executor_mem_util_avg": "0.2",
                     }
@@ -143,15 +163,36 @@ class StreamingEntrypointIntegrationTests(unittest.TestCase):
             )
             self._write_csv(
                 layer_b,
-                ["status", "model", "feature_set", "rows", "e2e_p95_ms", "proc_p95_ms", "driver_rss_mb", "executor_mem_util_avg"],
+                [
+                    "status",
+                    "model",
+                    "feature_set",
+                    "load_profile",
+                    "rows",
+                    "source_to_emit_p95_ms",
+                    "ingest_to_emit_p95_ms",
+                    "e2e_p95_ms",
+                    "proc_p95_ms",
+                    "watermark_delay_sec",
+                    "metric_warnings",
+                    "driver_cpu_percent",
+                    "driver_rss_mb",
+                    "executor_mem_util_avg",
+                ],
                 [
                     {
                         "status": "ok",
                         "model": "logistic_regression",
                         "feature_set": "full",
+                        "load_profile": "logistic_regression:full",
                         "rows": "1000",
+                        "source_to_emit_p95_ms": "20.0",
+                        "ingest_to_emit_p95_ms": "5.0",
                         "e2e_p95_ms": "20.0",
                         "proc_p95_ms": "5.0",
+                        "watermark_delay_sec": "0",
+                        "metric_warnings": "driver_cpu_percent_unavailable_without_psutil",
+                        "driver_cpu_percent": "12.0",
                         "driver_rss_mb": "128.0",
                         "executor_mem_util_avg": "0.1",
                     }
@@ -198,6 +239,9 @@ class StreamingEntrypointIntegrationTests(unittest.TestCase):
             self.assertEqual(report_payload["layer_b"]["best"]["model"], "logistic_regression")
             self.assertEqual(report_payload["layer_c"]["worst_recovery_seconds"], 12.0)
             self.assertEqual(report_payload["methodology"]["boundary_mode"], "sut_metrics_only")
+            self.assertTrue(report_payload["warnings"])
+            self.assertEqual(report_payload["layer_a"]["best"]["source_to_emit_p95_ms_p95"], 50.0)
+            self.assertEqual(report_payload["layer_b"]["best"]["source_to_emit_p95_ms_p95"], 20.0)
             self.assertEqual(
                 report_payload["methodology"]["official_evaluation"]["source_of_truth"],
                 "matrix_summaries_derived_from_ids_metrics",
@@ -208,6 +252,13 @@ class StreamingEntrypointIntegrationTests(unittest.TestCase):
             self.assertIn("## Methodology", markdown)
             self.assertIn("Layer A (System Knobs)", markdown)
             self.assertIn("matrix runners currently aggregate SUT-emitted `ids.metrics`", markdown)
+            self.assertIn("late_event_ratio was collected with watermark_delay_sec=0", markdown)
+            self.assertIn("source_to_emit_p95_ms_p95", markdown)
+            self.assertIn("Probe warning observed in metrics: driver_cpu_percent_unavailable_without_psutil", markdown)
+            self.assertTrue(
+                any("compatibility alias" in warning for warning in report_payload["warnings"]),
+                msg=report_payload["warnings"],
+            )
 
     @staticmethod
     def _write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) -> None:

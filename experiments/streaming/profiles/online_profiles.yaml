@@ -218,11 +218,12 @@ profiles:
         max_recovery_seconds: 120
         max_dead_letter_ratio: 0.02
     args:
+      execution_mode: docker
       model: logistic_regression
       feature_set: full
       trace_input_parquet: data/gold/splits/test.parquet
       trace_order_column: event_time
-      scenarios: [kafka_restart, spark_process_restart, producer_restart, network_slowdown]
+      scenarios: [kafka_restart, producer_restart, spark_process_restart, network_slowdown]
       warmup_rows: 120000
       warmup_rate_schedule: "5000:24"
       fault_delay_sec: 45
@@ -230,7 +231,7 @@ profiles:
       post_fault_rows_per_sec: 10000
       batch_size: 5000
       stream_run_seconds: 1200
-      startup_wait_sec: 10
+      startup_wait_sec: 90
       metrics_timeout_sec: 1200
       replay_retries: 8
       replay_retry_wait_sec: 5

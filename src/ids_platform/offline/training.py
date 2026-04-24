@@ -171,6 +171,106 @@ _SCORERS = {
 }
 
 
+def _resolve_registry_path(root: Path, raw_path: str | None, fallback: Path) -> Path:
+    if not raw_path:
+        return fallback
+    candidate = Path(raw_path)
+    return candidate if candidate.is_absolute() else (root / candidate)
+
+
+def _should_apply_feature_selection(paths: Paths, config: FeatureSelectionConfig) -> bool:
+    if not config.enabled:
+        return False
+    return paths.feature_set_name in set(config.apply_feature_sets)
+
+
+def _merge_selected_features(
+    *,
+    strategy: str,
+    ranked_selected_features: list[str],
+    required_features: list[str],
+    default_features: list[str],
+    k: int,
+    log,
+) -> list[str]:
+    normalized_strategy = strategy.strip().lower()
+
+    if normalized_strategy == "manual":
+        return list(default_features)
+
+    if normalized_strategy == "topk":
+        return list(ranked_selected_features)
+
+    if normalized_strategy != "hybrid":
+        log.warning("  unknown feature_selection.strategy='%s' -> using topk result", strategy)
+        return list(ranked_selected_features)
+
+    selected: list[str] = []
+    seen: set[str] = set()
+
+    for feature in required_features:
+        if feature not in seen:
+            selected.append(feature)
+            seen.add(feature)
+
+    target_count = max(int(k), len(selected))
+    for feature in ranked_selected_features:
+        if feature not in seen:
+            selected.append(feature)
+            seen.add(feature)
+        if len(selected) >= target_count:
+            break
+
+    if len(required_features) > k:
+        log.warning(
+            "  hybrid feature selection kept %d required features although k=%d",
+            len(required_features),
+            k,
+        )
+
+    return selected
+
+
+def _resolve_training_feature_lists(
+    paths: Paths,
+    preprocessing_config: PreprocessingConfig,
+    log,
+) -> tuple[list[str], list[str] | None, Path, Path | None]:
+    base_registry_path = paths.feature_registry_path
+    default_features = load_feature_list(base_registry_path)
+    feature_selection_config = preprocessing_config.feature_selection
+
+    if not _should_apply_feature_selection(paths, feature_selection_config):
+        return default_features, None, base_registry_path, None
+
+    candidate_registry_path = _resolve_registry_path(
+        paths.root,
+        feature_selection_config.candidate_registry,
+        paths.root / "configs" / "modeling" / "feature_registry_full.yaml",
+    )
+    required_registry_path = _resolve_registry_path(
+        paths.root,
+        feature_selection_config.required_registry,
+        base_registry_path,
+    )
+
+    candidate_features = load_feature_list(candidate_registry_path)
+    required_features = load_feature_list(required_registry_path)
+
+    candidate_set = set(candidate_features)
+    required_features = [feature for feature in required_features if feature in candidate_set]
+
+    log.info(
+        "  feature selection active feature_set=%s strategy=%s candidates=%d required=%d",
+        paths.feature_set_name,
+        feature_selection_config.strategy,
+        len(candidate_features),
+        len(required_features),
+    )
+
+    return candidate_features, required_features, candidate_registry_path, required_registry_path
+
+
 def _select_features_on_sample(
     train_path: Path,
     all_features: list[str],
@@ -422,6 +522,7 @@ def _save_feature_ranking(
     preprocessing_dir: Path,
     feature_ranking: list[tuple[str, float]],
     selected_features: list[str],
+    output_name: str,
     log,
 ) -> None:
     if not feature_ranking:
@@ -430,14 +531,14 @@ def _save_feature_ranking(
     ranking_df = pd.DataFrame(feature_ranking, columns=["feature", "score"])
     ranking_df["rank"] = range(1, len(ranking_df) + 1)
     ranking_df["selected"] = ranking_df["feature"].isin(selected_features)
-    ranking_df.to_csv(preprocessing_dir / "feature_ranking.csv", index=False)
+    ranking_df.to_csv(preprocessing_dir / output_name, index=False)
     log.info("  feature ranking saved (%d features)", len(ranking_df))
 
 
-def _save_operating_points(models_dir: Path, results: list[dict]) -> None:
+def _save_operating_points(models_dir: Path, results: list[dict], *, filename_suffix: str = "") -> None:
     for result in results:
         write_json(
-            models_dir / f"operating_points_{result['model']}.json",
+            models_dir / f"operating_points_{result['model']}{filename_suffix}.json",
             {
                 "model": result["model"],
                 "opt_threshold": result["opt_threshold"],
@@ -451,12 +552,12 @@ def _save_preprocessor_artifacts(best_pipe: Pipeline, paths: Paths) -> None:
     if "imputer" in best_pipe.named_steps:
         joblib.dump(
             best_pipe.named_steps["imputer"],
-            paths.preprocessing_dir / "imputer.joblib",
+            paths.preprocessing_dir / paths.suffixed_name("imputer.joblib"),
         )
     if "scaler" in best_pipe.named_steps:
         joblib.dump(
             best_pipe.named_steps["scaler"],
-            paths.preprocessing_dir / "scaler.joblib",
+            paths.preprocessing_dir / paths.suffixed_name("scaler.joblib"),
         )
 
 
@@ -514,6 +615,10 @@ def _build_feature_manifest(
     best_pipe: Pipeline,
     all_features: list[str],
     selected_features: list[str],
+    feature_selection_applied: bool,
+    feature_selection_strategy: str | None,
+    candidate_registry_path: Path | None,
+    required_registry_path: Path | None,
     best_model_name: str,
     best_model_path: Path,
     best_threshold: float,
@@ -534,16 +639,23 @@ def _build_feature_manifest(
         "opt_threshold": best_threshold,
         "fpr_budget": DEFAULT_FPR,
         "feature_selection": {
-            "enabled": preprocessing_config.feature_selection.enabled,
+            "enabled": feature_selection_applied,
+            "strategy": feature_selection_strategy,
             "method": (
                 preprocessing_config.feature_selection.method
-                if preprocessing_config.feature_selection.enabled
+                if feature_selection_applied
                 else None
             ),
             "k": (
                 preprocessing_config.feature_selection.k
-                if preprocessing_config.feature_selection.enabled
+                if feature_selection_applied
                 else None
+            ),
+            "candidate_registry": (
+                str(candidate_registry_path) if candidate_registry_path is not None else None
+            ),
+            "required_registry": (
+                str(required_registry_path) if required_registry_path is not None else None
             ),
         },
         "sampling": {
@@ -610,22 +722,40 @@ def run(paths: Paths) -> None:
     if not paths.train_path.exists() or not paths.valid_path.exists():
         raise FileNotFoundError("Missing splits -- run Phase 02 first")
 
-    all_features = load_feature_list(paths.feature_registry_path)
     preprocessing_config = PreprocessingConfig.from_yaml(paths.preprocessing_path)
+    all_features, required_features, candidate_registry_path, required_registry_path = _resolve_training_feature_lists(
+        paths,
+        preprocessing_config,
+        log,
+    )
     max_rows = preprocessing_config.memory.max_train_rows
 
     # ── Pass 1: feature selection on streamed sample ─────────────────
-    selected_features, feature_ranking = _select_features_on_sample(
+    ranked_selected_features, feature_ranking = _select_features_on_sample(
         paths.train_path,
         all_features,
         preprocessing_config.feature_selection,
         preprocessing_config.impute_strategy,
         log,
     )
+    selected_features = _merge_selected_features(
+        strategy=preprocessing_config.feature_selection.strategy,
+        ranked_selected_features=ranked_selected_features,
+        required_features=required_features or [],
+        default_features=all_features,
+        k=preprocessing_config.feature_selection.k,
+        log=log,
+    )
     gc.collect()
 
     # save feature ranking (for report / ablation analysis)
-    _save_feature_ranking(paths.preprocessing_dir, feature_ranking, selected_features, log)
+    _save_feature_ranking(
+        paths.preprocessing_dir,
+        feature_ranking,
+        selected_features,
+        paths.suffixed_name("feature_ranking.csv"),
+        log,
+    )
 
     # ── Pass 2: load train/valid with selected features ──────────────
     log.info("  loading train with %d features (max_rows=%s) ...",
@@ -707,7 +837,7 @@ def run(paths: Paths) -> None:
             train_time, valid_infer_time,
         )
 
-        model_path = paths.models_dir / f"{name}.joblib"
+        model_path = paths.models_dir / paths.suffixed_name(f"{name}.joblib")
         joblib.dump(pipe, model_path)
         saved_model_paths[name] = model_path
 
@@ -729,11 +859,14 @@ def run(paths: Paths) -> None:
     # ── Save per-attack recall CSV ───────────────────────────────────
     if all_per_attack_rows:
         per_attack_df = pd.DataFrame(all_per_attack_rows)
-        per_attack_df.to_csv(paths.models_dir / "valid_per_attack_recall.csv", index=False)
+        per_attack_df.to_csv(
+            paths.models_dir / paths.suffixed_name("valid_per_attack_recall.csv"),
+            index=False,
+        )
         log.info("  per-attack recall saved (%d rows)", len(per_attack_df))
 
     # ── Persist per-model operating points for Phase 04 ──────────────
-    _save_operating_points(paths.models_dir, results)
+    _save_operating_points(paths.models_dir, results, filename_suffix=paths.feature_set_suffix)
 
     # ── 5. Pick best ─────────────────────────────────────────────────
     # flatten operating_points for CSV (store as separate JSON)
@@ -744,12 +877,15 @@ def run(paths: Paths) -> None:
     validation_metrics_df = pd.DataFrame(csv_rows).sort_values(
         ["recall", "fpr"], ascending=[False, True],
     )
-    validation_metrics_df.to_csv(paths.models_dir / "valid_metrics.csv", index=False)
+    validation_metrics_df.to_csv(
+        paths.models_dir / paths.suffixed_name("valid_metrics.csv"),
+        index=False,
+    )
 
     best_name = str(validation_metrics_df.iloc[0]["model"])
     best_thr = float(validation_metrics_df.iloc[0].get("opt_threshold", 0.5))
     best_src = saved_model_paths[best_name]
-    best_dst = paths.models_dir / "best_model.joblib"
+    best_dst = paths.models_dir / paths.suffixed_name("best_model.joblib")
     shutil.copyfile(best_src, best_dst)
 
     # get operating points for best model
@@ -768,18 +904,29 @@ def run(paths: Paths) -> None:
         best_pipe=best_pipe,
         all_features=all_features,
         selected_features=selected_features,
+        feature_selection_applied=_should_apply_feature_selection(paths, preprocessing_config.feature_selection),
+        feature_selection_strategy=(
+            preprocessing_config.feature_selection.strategy
+            if _should_apply_feature_selection(paths, preprocessing_config.feature_selection)
+            else None
+        ),
+        candidate_registry_path=candidate_registry_path,
+        required_registry_path=required_registry_path,
         best_model_name=best_name,
         best_model_path=best_dst,
         best_threshold=best_thr,
         preprocessing_config=preprocessing_config,
         use_class_weight=use_class_weight,
     )
-    write_json(paths.preprocessing_dir / "feature_manifest.json", manifest)
+    write_json(
+        paths.preprocessing_dir / paths.suffixed_name("feature_manifest.json"),
+        manifest,
+    )
 
     # ── 8. Best model meta ───────────────────────────────────────────
     best_row = validation_metrics_df.iloc[0].to_dict()
     write_json(
-        paths.models_dir / "best_model.json",
+        paths.models_dir / paths.suffixed_name("best_model.json"),
         _build_best_model_metadata(
             best_model_name=best_name,
             best_model_path=best_dst,

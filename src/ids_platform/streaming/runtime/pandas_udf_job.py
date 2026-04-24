@@ -27,7 +27,7 @@ from ids_platform.streaming.runtime.benchmark import (
     metrics_from_counts,
     unique_preserve,
 )
-from ids_platform.offline.config import load_feature_list, load_json
+from ids_platform.offline.config import load_json
 
 if TYPE_CHECKING:
     from pyspark.sql.column import Column
@@ -107,18 +107,10 @@ def run_pandas_udf_benchmark(options: PandasUdfBenchmarkOptions) -> int:
 
     # ── features ────────────────────────────────────────
     manifest = load_json(manifest_path)
-    full_feature_columns = [str(column_name) for column_name in manifest.get("feature_columns", [])]
-    if not full_feature_columns:
+    model_feature_columns = [str(column_name) for column_name in manifest.get("feature_columns", [])]
+    if not model_feature_columns:
         raise ValueError("feature_columns is missing in feature manifest")
-
-    if options.feature_set == "reduced":
-        reduced_features = load_feature_list(PROJECT_ROOT / "configs" / "modeling" / "feature_registry.yaml")
-        active_feature_columns = [column_name for column_name in reduced_features if column_name in full_feature_columns]
-    else:
-        active_feature_columns = full_feature_columns
-
-    if not active_feature_columns:
-        raise ValueError(f"No active features found for feature_set={options.feature_set}")
+    active_feature_columns = model_feature_columns
 
 
     # ── impute ──────────────────────────────────────────
@@ -220,22 +212,11 @@ def run_pandas_udf_benchmark(options: PandasUdfBenchmarkOptions) -> int:
     transform_started = time.perf_counter()
     existing_dataframe_columns = set(dataframe.columns)
     feature_projection = []
-    active_feature_set = set(active_feature_columns)
-    if options.feature_set == "reduced":
-        for column_name in full_feature_columns:
-            if column_name in existing_dataframe_columns:
-                if column_name in active_feature_set:
-                    feature_projection.append(F.col(column_name).cast("double").alias(column_name))
-                else:
-                    feature_projection.append(F.lit(None).cast("double").alias(column_name))
-            else:
-                feature_projection.append(F.lit(None).cast("double").alias(column_name))
-    else:
-        for column_name in full_feature_columns:
-            if column_name in existing_dataframe_columns:
-                feature_projection.append(F.col(column_name).cast("double").alias(column_name))
-            else:
-                feature_projection.append(F.lit(None).cast("double").alias(column_name))
+    for column_name in model_feature_columns:
+        if column_name in existing_dataframe_columns:
+            feature_projection.append(F.col(column_name).cast("double").alias(column_name))
+        else:
+            feature_projection.append(F.lit(None).cast("double").alias(column_name))
 
     keep_meta = [column_name for column_name in keep_meta_candidates if column_name in dataframe.columns]
     base_projection = [
@@ -247,7 +228,7 @@ def run_pandas_udf_benchmark(options: PandasUdfBenchmarkOptions) -> int:
     base_df = dataframe.select(*base_projection)
     base_df = base_df.select(
         *[F.col(column_name) for column_name in base_df.columns],
-        F.struct(*[F.col(column_name).alias(column_name) for column_name in full_feature_columns]).alias("_features"),
+        F.struct(*[F.col(column_name).alias(column_name) for column_name in model_feature_columns]).alias("_features"),
     )
 
     available_columns = set(base_df.columns)
@@ -335,7 +316,7 @@ def run_pandas_udf_benchmark(options: PandasUdfBenchmarkOptions) -> int:
     for model_spec in active_models:
         model_name = str(model_spec["name"])
         threshold = _coerce_threshold(model_spec["threshold"])
-        score_udf = make_struct_score_udf(str(model_spec["joblib_path"]), full_feature_columns, fill_values)
+        score_udf = make_struct_score_udf(str(model_spec["joblib_path"]), model_feature_columns, fill_values)
         score_udf_column_fn = cast(Callable[["Column"], "Column"], score_udf)
         score_output_column = score_udf_column_fn(F.col("_features"))
         prediction_condition = cast("Column", F.col(f"score_{model_name}") >= F.lit(threshold))
@@ -474,7 +455,7 @@ def run_pandas_udf_benchmark(options: PandasUdfBenchmarkOptions) -> int:
         "profile": {
             "feature_set": options.feature_set,
             "active_feature_count": len(active_feature_columns),
-            "model_input_feature_count": len(full_feature_columns),
+            "model_input_feature_count": len(model_feature_columns),
             "sampling_policy": str((manifest.get("sampling") or {}).get("strategy", "unknown")),
             "models": [model["name"] for model in active_models],
         },

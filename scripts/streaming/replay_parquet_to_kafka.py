@@ -32,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--late-event-ratio", type=float, default=0.0)
     parser.add_argument("--late-event-max-sec", type=float, default=0.0)
     parser.add_argument("--random-seed", type=int, default=42)
+    parser.add_argument("--no-input-sentinel", action="store_true")
 
     return parser.parse_args()
 
@@ -58,6 +59,7 @@ def main() -> int:
             late_event_ratio=args.late_event_ratio,
             late_event_max_sec=args.late_event_max_sec,
             random_seed=args.random_seed,
+            emit_input_sentinel=not args.no_input_sentinel,
         )
     )
 

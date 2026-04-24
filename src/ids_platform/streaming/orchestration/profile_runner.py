@@ -275,10 +275,39 @@ def evaluate_pass_fail(rows: list[dict], pass_fail: dict) -> tuple[bool, list[st
                 checks.append((actual <= expected_num, f"{key}: actual={actual:.6f} from {column_name} threshold<={expected_num:.6f}"))
             continue
 
-        if key == "max_e2e_p95_ms":
-            values, column_name = extract_series(rows, ["e2e_p95_ms_max", "e2e_p95_ms", "e2e_p95_ms_after_fault"])
+        if key in {"max_source_to_emit_p95_ms", "max_e2e_p95_ms"}:
+            values, column_name = extract_series(
+                rows,
+                [
+                    "source_to_emit_p95_ms_max",
+                    "source_to_emit_p95_ms",
+                    "source_to_emit_p95_ms_after_fault",
+                    "e2e_p95_ms_max",
+                    "e2e_p95_ms",
+                    "e2e_p95_ms_after_fault",
+                ],
+            )
             if not values:
-                checks.append((False, f"{key}: missing e2e p95 column"))
+                checks.append((False, f"{key}: missing source-to-emit/e2e p95 column"))
+            else:
+                actual = max(values)
+                checks.append((actual <= expected_num, f"{key}: actual={actual:.3f} from {column_name} threshold<={expected_num:.3f}"))
+            continue
+
+        if key in {"max_ingest_to_emit_p95_ms", "max_proc_p95_ms"}:
+            values, column_name = extract_series(
+                rows,
+                [
+                    "ingest_to_emit_p95_ms_max",
+                    "ingest_to_emit_p95_ms",
+                    "ingest_to_emit_p95_ms_after_fault",
+                    "proc_p95_ms_max",
+                    "proc_p95_ms",
+                    "proc_p95_ms_after_fault",
+                ],
+            )
+            if not values:
+                checks.append((False, f"{key}: missing ingest-to-emit/proc p95 column"))
             else:
                 actual = max(values)
                 checks.append((actual <= expected_num, f"{key}: actual={actual:.3f} from {column_name} threshold<={expected_num:.3f}"))

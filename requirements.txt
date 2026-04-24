@@ -16,6 +16,8 @@ confluent-kafka== 2.14.0
 
 # Phase 2 dashboard (optional)
 streamlit==1.44.1
+matplotlib==3.9.2
 
 # Phase 3 local observability (optional)
 prometheus-client==0.22.1
+psutil==5.9.8

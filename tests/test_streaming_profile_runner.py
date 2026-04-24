@@ -110,6 +110,32 @@ class ProfileRunnerTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertTrue(any("PASS" in line for line in lines))
 
+    def test_evaluate_pass_fail_prefers_explicit_latency_columns(self) -> None:
+        rows = [
+            {
+                "status": "ok",
+                "source_to_emit_p95_ms": "80.0",
+                "e2e_p95_ms": "999.0",
+                "ingest_to_emit_p95_ms": "20.0",
+                "proc_p95_ms": "999.0",
+            }
+        ]
+
+        passed, details = evaluate_pass_fail(
+            rows,
+            {
+                "required": True,
+                "max_source_to_emit_p95_ms": 100.0,
+                "max_ingest_to_emit_p95_ms": 30.0,
+                "max_e2e_p95_ms": 100.0,
+                "max_proc_p95_ms": 30.0,
+            },
+        )
+
+        self.assertTrue(passed, msg=details)
+        self.assertTrue(any("source_to_emit_p95_ms" in detail for detail in details))
+        self.assertTrue(any("ingest_to_emit_p95_ms" in detail for detail in details))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -35,11 +35,13 @@ memory:
 #   mutual_info    – Mutual information (chậm nhưng capture nonlinear)
 #
 feature_selection:
-  enabled: false                  # DISABLED: fsel sample was DDoS-biased (53% atk)
-                                  # → selected DDoS features, missed Infiltration patterns
-                                  # Re-enable after fixing day-stratified sample
-  method: f_classif               # f_classif | chi2 | mutual_info
-  k: 30                           # top-K features giữ lại
+  enabled: true                   # Applied only to reduced artifacts for benchmark.
+  strategy: hybrid                # manual | topk | hybrid
+  method: mutual_info             # f_classif | chi2 | mutual_info
+  k: 17                           # target total features for reduced benchmark (or 20)
+  candidate_registry: configs/modeling/feature_registry_full.yaml
+  required_registry: configs/modeling/feature_registry_reduced_anchor.yaml
+  apply_feature_sets: [reduced]
 
 # ── Models ─────────────────────────────────────────────────────────
 models:
@@ -50,7 +52,12 @@ models:
 
   random_forest:
     enabled: true                # disabled for speed (re-enable after LR/GBT validated)
-    n_estimators: 300
+    n_estimators: 96
+    max_depth: 18
+    min_samples_leaf: 32
+    # n_estimators: 64
+    # max_depth: 16
+    # min_samples_leaf: 48
 
   # GBT maps trực tiếp sang Spark MLlib GBTClassifier.
   gradient_boosting:

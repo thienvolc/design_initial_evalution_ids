@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, cast
 
 import pandas as pd
@@ -10,37 +11,93 @@ if TYPE_CHECKING:
 _MODEL_CACHE: dict[str, object] = {}
 
 
+def _load_model(model_path: str):
+    import joblib
+
+    model = _MODEL_CACHE.get(model_path)
+    if model is None:
+        model = joblib.load(model_path)
+        _MODEL_CACHE[model_path] = model
+    return model
+
+
+def _score_frame(*, model_path: str, feature_columns: list[str], fill_values: dict[str, float], frame: pd.DataFrame):
+    import numpy as np
+
+    model = _load_model(model_path)
+    frame.columns = feature_columns
+    frame = frame.apply(pd.to_numeric, errors="coerce")
+
+    for col in feature_columns:
+        if col in fill_values:
+            frame[col] = frame[col].fillna(float(fill_values[col]))
+
+    frame = frame.fillna(0.0)
+    if hasattr(model, "predict_proba"):
+        scores = model.predict_proba(frame)[:, 1]
+    else:
+        scores = model.predict(frame)
+    return np.asarray(scores, dtype=float)
+
+
 def make_score_udf(model_path: str, feature_columns: list[str], fill_values: dict[str, float]):
-    from pyspark.sql.functions import pandas_udf
     from pyspark.sql.types import DoubleType
 
-    @pandas_udf(DoubleType())
-    def _score_udf(*cols: pd.Series) -> pd.Series:
-        import joblib
-        import numpy as np
+    try:
+        from pyspark.sql.functions import pandas_udf
 
-        model = _MODEL_CACHE.get(model_path)
-        if model is None:
-            model = joblib.load(model_path)
-            _MODEL_CACHE[model_path] = model
+        @pandas_udf(DoubleType())
+        def _score_udf(*cols: pd.Series) -> pd.Series:
+            frame = pd.concat(cols, axis=1)
+            return pd.Series(
+                _score_frame(
+                    model_path=model_path,
+                    feature_columns=feature_columns,
+                    fill_values=fill_values,
+                    frame=frame,
+                )
+            )
 
-        frame = pd.concat(cols, axis=1)
-        frame.columns = feature_columns
-        frame = frame.apply(pd.to_numeric, errors="coerce")
+        return _score_udf
+    except Exception:
+        from pyspark.sql.functions import udf
 
-        for col in feature_columns:
-            if col in fill_values:
-                frame[col] = frame[col].fillna(float(fill_values[col]))
+        @udf(DoubleType())
+        def _score_udf(*values) -> float:
+            frame = pd.DataFrame([list(values)], columns=feature_columns)
+            scores = _score_frame(
+                model_path=model_path,
+                feature_columns=feature_columns,
+                fill_values=fill_values,
+                frame=frame,
+            )
+            return float(scores[0]) if len(scores) else 0.0
 
-        frame = frame.fillna(0.0)
-        if hasattr(model, "predict_proba"):
-            scores = model.predict_proba(frame)[:, 1]
-        else:
-            scores = model.predict(frame)
+        return _score_udf
 
-        return pd.Series(np.asarray(scores, dtype=float))
 
-    return _score_udf
+def prewarm_score_udf_model(
+    spark,
+    *,
+    score_udf,
+    feature_columns: list[str],
+    fill_values: dict[str, float],
+) -> float:
+    from pyspark.sql import functions as F
+
+    if not feature_columns:
+        return 0.0
+
+    seed_row = {column_name: float(fill_values.get(column_name, 0.0)) for column_name in feature_columns}
+    warmup_df = spark.createDataFrame([seed_row])
+    started = time.perf_counter()
+    (
+        warmup_df.select(
+            score_udf(*[F.col(feature_name) for feature_name in feature_columns]).alias("prediction_score")
+        )
+        .collect()
+    )
+    return (time.perf_counter() - started) * 1000.0
 
 
 def add_prediction_columns(

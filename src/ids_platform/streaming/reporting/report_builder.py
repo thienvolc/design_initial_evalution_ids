@@ -44,6 +44,19 @@ def _percentile(values: list[float], q: float) -> float | None:
     return sorted_vals[idx]
 
 
+def _first_numeric(row: dict, candidates: list[str]) -> float | None:
+    for candidate in candidates:
+        value = _to_float(row.get(candidate))
+        if value is not None:
+            return value
+    return None
+
+
+def _collect_metric(items: list[dict], candidates: list[str]) -> list[float]:
+    values = [_first_numeric(item, candidates) for item in items]
+    return [value for value in values if value is not None]
+
+
 def _analyze_layer_a(rows: list[dict]) -> dict:
     ok_rows = [r for r in rows if _is_ok(r)]
     grouped: dict[tuple[str, str, str, str], list[dict]] = {}
@@ -61,16 +74,14 @@ def _analyze_layer_a(rows: list[dict]) -> dict:
         profile, max_offsets, shuffle, trigger_interval = key
         throughputs = [_to_float(item.get("rows_per_sec_avg")) for item in items]
         throughputs = [x for x in throughputs if x is not None]
+        source_to_emit_vals = _collect_metric(items, ["source_to_emit_p95_ms_max", "e2e_p95_ms_max"])
 
-        e2e_vals = [_to_float(item.get("e2e_p95_ms_max")) for item in items]
-        e2e_vals = [x for x in e2e_vals if x is not None]
-
-        if not throughputs or not e2e_vals:
+        if not throughputs or not source_to_emit_vals:
             continue
 
         throughput_median = statistics.median(throughputs)
-        e2e_p95 = _percentile(e2e_vals, 0.95)
-        score = throughput_median / e2e_p95 if e2e_p95 and e2e_p95 > 0 else None
+        source_to_emit_p95 = _percentile(source_to_emit_vals, 0.95)
+        score = throughput_median / source_to_emit_p95 if source_to_emit_p95 and source_to_emit_p95 > 0 else None
         if score is None:
             continue
 
@@ -85,10 +96,14 @@ def _analyze_layer_a(rows: list[dict]) -> dict:
                 "rows_per_sec_median": throughput_median,
                 "rows_per_sec_p95": _percentile(throughputs, 0.95),
                 "rows_per_sec_max": max(throughputs),
-                "e2e_p95_ms_min": min(e2e_vals),
-                "e2e_p95_ms_median": statistics.median(e2e_vals),
-                "e2e_p95_ms_p95": e2e_p95,
-                "e2e_p95_ms_max": max(e2e_vals),
+                "source_to_emit_p95_ms_min": min(source_to_emit_vals),
+                "source_to_emit_p95_ms_median": statistics.median(source_to_emit_vals),
+                "source_to_emit_p95_ms_p95": source_to_emit_p95,
+                "source_to_emit_p95_ms_max": max(source_to_emit_vals),
+                "e2e_p95_ms_min": min(source_to_emit_vals),
+                "e2e_p95_ms_median": statistics.median(source_to_emit_vals),
+                "e2e_p95_ms_p95": source_to_emit_p95,
+                "e2e_p95_ms_max": max(source_to_emit_vals),
                 "score": score,
             }
         )
@@ -112,14 +127,12 @@ def _analyze_layer_b(rows: list[dict]) -> dict:
     ranked = []
     for key, items in grouped.items():
         model, feature_set = key
-        e2e_vals = [_to_float(item.get("e2e_p95_ms")) for item in items]
-        e2e_vals = [x for x in e2e_vals if x is not None]
-        proc_vals = [_to_float(item.get("proc_p95_ms")) for item in items]
-        proc_vals = [x for x in proc_vals if x is not None]
+        source_to_emit_vals = _collect_metric(items, ["source_to_emit_p95_ms", "e2e_p95_ms"])
+        ingest_to_emit_vals = _collect_metric(items, ["ingest_to_emit_p95_ms", "proc_p95_ms"])
         rows_vals = [_to_float(item.get("rows")) for item in items]
         rows_vals = [x for x in rows_vals if x is not None]
 
-        if not e2e_vals or not proc_vals:
+        if not source_to_emit_vals or not ingest_to_emit_vals:
             continue
 
         ranked.append(
@@ -127,19 +140,27 @@ def _analyze_layer_b(rows: list[dict]) -> dict:
                 "model": model,
                 "feature_set": feature_set,
                 "count": len(items),
-                "e2e_p95_ms_min": min(e2e_vals),
-                "e2e_p95_ms_median": statistics.median(e2e_vals),
-                "e2e_p95_ms_p95": _percentile(e2e_vals, 0.95),
-                "e2e_p95_ms_max": max(e2e_vals),
-                "proc_p95_ms_min": min(proc_vals),
-                "proc_p95_ms_median": statistics.median(proc_vals),
-                "proc_p95_ms_p95": _percentile(proc_vals, 0.95),
-                "proc_p95_ms_max": max(proc_vals),
+                "source_to_emit_p95_ms_min": min(source_to_emit_vals),
+                "source_to_emit_p95_ms_median": statistics.median(source_to_emit_vals),
+                "source_to_emit_p95_ms_p95": _percentile(source_to_emit_vals, 0.95),
+                "source_to_emit_p95_ms_max": max(source_to_emit_vals),
+                "e2e_p95_ms_min": min(source_to_emit_vals),
+                "e2e_p95_ms_median": statistics.median(source_to_emit_vals),
+                "e2e_p95_ms_p95": _percentile(source_to_emit_vals, 0.95),
+                "e2e_p95_ms_max": max(source_to_emit_vals),
+                "ingest_to_emit_p95_ms_min": min(ingest_to_emit_vals),
+                "ingest_to_emit_p95_ms_median": statistics.median(ingest_to_emit_vals),
+                "ingest_to_emit_p95_ms_p95": _percentile(ingest_to_emit_vals, 0.95),
+                "ingest_to_emit_p95_ms_max": max(ingest_to_emit_vals),
+                "proc_p95_ms_min": min(ingest_to_emit_vals),
+                "proc_p95_ms_median": statistics.median(ingest_to_emit_vals),
+                "proc_p95_ms_p95": _percentile(ingest_to_emit_vals, 0.95),
+                "proc_p95_ms_max": max(ingest_to_emit_vals),
                 "rows_median": statistics.median(rows_vals) if rows_vals else None,
             }
         )
 
-    ranked.sort(key=lambda item: (item["e2e_p95_ms_p95"], item["proc_p95_ms_p95"]))
+    ranked.sort(key=lambda item: (item["source_to_emit_p95_ms_p95"], item["ingest_to_emit_p95_ms_p95"]))
     return {
         "total": len(rows),
         "ok": len(ok_rows),
@@ -207,8 +228,10 @@ def _analyze_watermark(rows: list[dict]) -> dict:
             {
                 "watermark_delay_sec": _to_float(row.get("watermark_delay_sec")),
                 "late_event_ratio": _to_float(row.get("late_event_ratio")),
+                "late_event_ratio_interpretable": _to_float(row.get("late_event_ratio_interpretable")),
+                "freshness_signal_ratio": _to_float(row.get("freshness_signal_ratio")),
                 "event_lateness_p95_ms": _to_float(row.get("event_lateness_p95_ms")),
-                "e2e_p95_ms": _to_float(row.get("e2e_p95_ms")),
+                "source_to_emit_p95_ms": _first_numeric(row, ["source_to_emit_p95_ms", "e2e_p95_ms"]),
                 "fnr": _to_float(row.get("fnr")),
             }
         )
@@ -231,7 +254,10 @@ def _analyze_load_quality(rows: list[dict]) -> dict:
                 "load_profile": str(row.get("load_profile", "")),
                 "rows_per_sec_target": _to_float(row.get("rows_per_sec_target")),
                 "rows_per_sec_actual": _to_float(row.get("rows_per_sec_actual")),
-                "e2e_p95_ms": _to_float(row.get("e2e_p95_ms")),
+                "source_to_emit_p95_ms": _first_numeric(row, ["source_to_emit_p95_ms", "e2e_p95_ms"]),
+                "ingest_to_emit_p95_ms": _first_numeric(row, ["ingest_to_emit_p95_ms", "proc_p95_ms"]),
+                "late_event_ratio_interpretable": _to_float(row.get("late_event_ratio_interpretable")),
+                "freshness_signal_ratio": _to_float(row.get("freshness_signal_ratio")),
                 "f1": _to_float(row.get("f1")),
                 "fpr": _to_float(row.get("fpr")),
                 "fnr": _to_float(row.get("fnr")),
@@ -264,6 +290,67 @@ def _coverage(rows: list[dict], column: str) -> dict:
         "total": total,
         "coverage_pct": (present * 100.0) / total,
     }
+
+
+def _blank_cell_count(rows: list[dict], column: str) -> int:
+    return sum(1 for row in rows if not str(row.get(column, "")).strip())
+
+
+def _timeseries_semantics(rows: list[dict]) -> dict:
+    total = len(rows)
+    if total == 0:
+        return {}
+
+    watermark_zero_rows = [
+        row for row in rows
+        if _to_float(row.get("watermark_delay_sec")) == 0.0
+    ]
+    late_interp_blank = _blank_cell_count(rows, "late_event_ratio_interpretable")
+    freshness_present = _coverage(rows, "freshness_signal_ratio")
+    metric_warnings_blank = _blank_cell_count(rows, "metric_warnings")
+    precision_blank = _blank_cell_count(rows, "precision")
+    recall_blank = _blank_cell_count(rows, "recall")
+    f1_blank = _blank_cell_count(rows, "f1")
+
+    semantics: dict[str, dict] = {}
+    semantics["metric_warnings"] = {
+        "blank_rows": metric_warnings_blank,
+        "total_rows": total,
+        "classification": ("expected_blank_when_no_warning" if metric_warnings_blank == total else "mixed"),
+        "note": "Blank metric_warnings cells indicate no warning was emitted for that batch.",
+    }
+    semantics["late_event_ratio_interpretable"] = {
+        "blank_rows": late_interp_blank,
+        "total_rows": total,
+        "classification": (
+            "expected_not_applicable_when_watermark_delay_zero"
+            if watermark_zero_rows and len(watermark_zero_rows) == total and late_interp_blank == total
+            else "mixed"
+        ),
+        "note": (
+            "When watermark_delay_sec=0, late_event_ratio is treated as freshness_signal_ratio and "
+            "late_event_ratio_interpretable is intentionally left blank."
+        ),
+    }
+    semantics["precision_recall_f1"] = {
+        "precision_blank_rows": precision_blank,
+        "recall_blank_rows": recall_blank,
+        "f1_blank_rows": f1_blank,
+        "total_rows": total,
+        "classification": "undefined_when_denominator_zero",
+        "note": (
+            "Blank precision/recall/f1 cells indicate the metric was undefined for that batch, "
+            "for example when there were no positive predictions or no positive labels."
+        ),
+    }
+    semantics["freshness_signal_ratio"] = {
+        "present_rows": freshness_present["present"],
+        "total_rows": freshness_present["total"],
+        "coverage_pct": freshness_present["coverage_pct"],
+        "classification": "primary_delay_zero_substitute_metric",
+        "note": "Use freshness_signal_ratio as the interpretable signal when watermark_delay_sec=0.",
+    }
+    return semantics
 
 
 def _find_first_column(rows: list[dict], candidates: list[str]) -> str:
@@ -399,7 +486,69 @@ def _evaluation_methodology(sources: dict) -> dict:
     }
 
 
-def _build_markdown(a: dict, b: dict, c: dict, wm: dict, lq: dict, resources: dict, sources: dict) -> str:
+def _build_metric_warnings(layer_a_rows: list[dict], layer_b_rows: list[dict]) -> list[str]:
+    warnings: list[str] = []
+    watermark_zero_rows = [
+        row for row in [*layer_a_rows, *layer_b_rows]
+        if _is_ok(row) and _to_float(row.get("watermark_delay_sec")) == 0.0
+    ]
+    if watermark_zero_rows:
+        warnings.append(
+            "late_event_ratio was collected with watermark_delay_sec=0 for some default runs, "
+            "so any positive ingest-vs-source delay counts as late; prefer freshness_signal_ratio for delay=0 runs and "
+            "treat late_event_ratio_interpretable as undefined there."
+        )
+    if any(_is_ok(row) for row in layer_b_rows):
+        warnings.append(
+            "Legacy proc_p95_ms is a compatibility alias for ingest_to_emit_p95_ms, and e2e_p95_ms is a compatibility alias "
+            "for source_to_emit_p95_ms; prefer the explicit names for new analysis."
+        )
+    load_profile_missing = [
+        row for row in [*layer_a_rows, *layer_b_rows]
+        if _is_ok(row) and not str(row.get("load_profile", "")).strip()
+    ]
+    if load_profile_missing:
+        warnings.append(
+            "Some summary rows still have blank load_profile values; those runs may predate the traceability fix and should be correlated by run_tag."
+        )
+    metric_warning_values: set[str] = set()
+    for row in [*layer_a_rows, *layer_b_rows]:
+        raw = str(row.get("metric_warnings", "")).strip()
+        if not raw:
+            continue
+        for warning in raw.split(";"):
+            warning_text = warning.strip()
+            if warning_text:
+                metric_warning_values.add(warning_text)
+    for warning_text in sorted(metric_warning_values):
+        warnings.append(f"Probe warning observed in metrics: {warning_text}")
+    return warnings
+
+
+def _build_timeseries_semantics_warnings(layer_c_rows: list[dict], watermark_rows: list[dict], load_quality_rows: list[dict]) -> list[str]:
+    warnings: list[str] = []
+    for name, rows in [
+        ("layer_c", layer_c_rows),
+        ("watermark", watermark_rows),
+        ("load_quality", load_quality_rows),
+    ]:
+        semantics = _timeseries_semantics(rows)
+        if not semantics:
+            continue
+        late_interp = semantics.get("late_event_ratio_interpretable", {})
+        if late_interp.get("classification") == "expected_not_applicable_when_watermark_delay_zero":
+            warnings.append(
+                f"{name}: late_event_ratio_interpretable is blank by design when watermark_delay_sec=0; use freshness_signal_ratio instead."
+            )
+        metric_warn = semantics.get("metric_warnings", {})
+        if metric_warn.get("classification") == "expected_blank_when_no_warning":
+            warnings.append(
+                f"{name}: blank metric_warnings cells mean no warning was emitted, not missing telemetry."
+            )
+    return warnings
+
+
+def _build_markdown(a: dict, b: dict, c: dict, wm: dict, lq: dict, resources: dict, sources: dict, warnings: list[str]) -> str:
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     lines: list[str] = []
 
@@ -426,6 +575,10 @@ def _build_markdown(a: dict, b: dict, c: dict, wm: dict, lq: dict, resources: di
     lines.append("  - prediction artifacts = raw SUT outputs")
     lines.append("  - matrix summary CSVs = official per-scenario evaluation outputs derived from ids.metrics")
     lines.append("  - report JSON/markdown = official aggregated evaluation outputs")
+    if warnings:
+        lines.append("- Important metric warnings:")
+        for warning in warnings:
+            lines.append(f"  - {warning}")
     lines.append("")
 
     lines.append("## Layer A (System Knobs)")
@@ -436,7 +589,7 @@ def _build_markdown(a: dict, b: dict, c: dict, wm: dict, lq: dict, resources: di
             "- best profile: "
             f"{best['profile']} (score={_fmt_num(best['score'])}, "
             f"rows_per_sec_median={_fmt_num(best['rows_per_sec_median'])}, "
-            f"e2e_p95_ms_p95={_fmt_num(best['e2e_p95_ms_p95'])})"
+            f"source_to_emit_p95_ms_p95={_fmt_num(best['source_to_emit_p95_ms_p95'])})"
         )
     else:
         lines.append("- best profile: n/a")
@@ -450,9 +603,9 @@ def _build_markdown(a: dict, b: dict, c: dict, wm: dict, lq: dict, resources: di
             f"rows_per_sec(min/med/p95/max)=({_fmt_num(item['rows_per_sec_min'])}/"
             f"{_fmt_num(item['rows_per_sec_median'])}/{_fmt_num(item['rows_per_sec_p95'])}/"
             f"{_fmt_num(item['rows_per_sec_max'])}), "
-            f"e2e_p95_ms(min/med/p95/max)=({_fmt_num(item['e2e_p95_ms_min'])}/"
-            f"{_fmt_num(item['e2e_p95_ms_median'])}/{_fmt_num(item['e2e_p95_ms_p95'])}/"
-            f"{_fmt_num(item['e2e_p95_ms_max'])}), "
+            f"source_to_emit_p95_ms(min/med/p95/max)=({_fmt_num(item['source_to_emit_p95_ms_min'])}/"
+            f"{_fmt_num(item['source_to_emit_p95_ms_median'])}/{_fmt_num(item['source_to_emit_p95_ms_p95'])}/"
+            f"{_fmt_num(item['source_to_emit_p95_ms_max'])}), "
             f"n={item['count']}, max_offsets={item['max_offsets_per_trigger']}, "
             f"shuffle={item['shuffle_partitions']}, trigger={item['trigger_interval'] or 'config_default'}"
         )
@@ -465,8 +618,8 @@ def _build_markdown(a: dict, b: dict, c: dict, wm: dict, lq: dict, resources: di
         lines.append(
             "- fastest combo: "
             f"{best['model']} + {best['feature_set']} "
-            f"(e2e_p95_ms_p95={_fmt_num(best['e2e_p95_ms_p95'])}, "
-            f"proc_p95_ms_p95={_fmt_num(best['proc_p95_ms_p95'])}, n={best['count']})"
+            f"(source_to_emit_p95_ms_p95={_fmt_num(best['source_to_emit_p95_ms_p95'])}, "
+            f"ingest_to_emit_p95_ms_median={_fmt_num(best.get('ingest_to_emit_p95_ms_median'))}, n={best['count']})"
         )
     else:
         lines.append("- fastest combo: n/a")
@@ -477,12 +630,12 @@ def _build_markdown(a: dict, b: dict, c: dict, wm: dict, lq: dict, resources: di
         lines.append(
             "- "
             f"{item['model']} + {item['feature_set']}: "
-            f"e2e_p95_ms(min/med/p95/max)=({_fmt_num(item['e2e_p95_ms_min'])}/"
-            f"{_fmt_num(item['e2e_p95_ms_median'])}/{_fmt_num(item['e2e_p95_ms_p95'])}/"
-            f"{_fmt_num(item['e2e_p95_ms_max'])}), "
-            f"proc_p95_ms(min/med/p95/max)=({_fmt_num(item['proc_p95_ms_min'])}/"
-            f"{_fmt_num(item['proc_p95_ms_median'])}/{_fmt_num(item['proc_p95_ms_p95'])}/"
-            f"{_fmt_num(item['proc_p95_ms_max'])}), n={item['count']}, "
+            f"source_to_emit_p95_ms(min/med/p95/max)=({_fmt_num(item['source_to_emit_p95_ms_min'])}/"
+            f"{_fmt_num(item['source_to_emit_p95_ms_median'])}/{_fmt_num(item['source_to_emit_p95_ms_p95'])}/"
+            f"{_fmt_num(item['source_to_emit_p95_ms_max'])}), "
+            f"ingest_to_emit_p95_ms(min/med/p95/max)=({_fmt_num(item['ingest_to_emit_p95_ms_min'])}/"
+            f"{_fmt_num(item['ingest_to_emit_p95_ms_median'])}/{_fmt_num(item['ingest_to_emit_p95_ms_p95'])}/"
+            f"{_fmt_num(item['ingest_to_emit_p95_ms_max'])}), n={item['count']}, "
             f"rows_median={_fmt_num(item['rows_median'])}"
         )
 
@@ -522,8 +675,10 @@ def _build_markdown(a: dict, b: dict, c: dict, wm: dict, lq: dict, resources: di
                 "- "
                 f"delay={_fmt_num(item['watermark_delay_sec'], 0)}s, "
                 f"late_event_ratio={_fmt_num(item['late_event_ratio'])}, "
+                f"late_event_ratio_interpretable={_fmt_num(item.get('late_event_ratio_interpretable'))}, "
+                f"freshness_signal_ratio={_fmt_num(item.get('freshness_signal_ratio'))}, "
                 f"event_lateness_p95_ms={_fmt_num(item['event_lateness_p95_ms'])}, "
-                f"e2e_p95_ms={_fmt_num(item['e2e_p95_ms'])}, fnr={_fmt_num(item['fnr'])}"
+                f"source_to_emit_p95_ms={_fmt_num(item['source_to_emit_p95_ms'])}, fnr={_fmt_num(item['fnr'])}"
             )
 
     if lq.get("total", 0) > 0:
@@ -536,7 +691,10 @@ def _build_markdown(a: dict, b: dict, c: dict, wm: dict, lq: dict, resources: di
                 "- "
                 f"{item['load_profile']}: target_rps={_fmt_num(item['rows_per_sec_target'])}, "
                 f"actual_rps={_fmt_num(item['rows_per_sec_actual'])}, "
-                f"e2e_p95_ms={_fmt_num(item['e2e_p95_ms'])}, f1={_fmt_num(item['f1'])}, "
+                f"source_to_emit_p95_ms={_fmt_num(item['source_to_emit_p95_ms'])}, "
+                f"ingest_to_emit_p95_ms={_fmt_num(item['ingest_to_emit_p95_ms'])}, f1={_fmt_num(item['f1'])}, "
+                f"late_event_ratio_interpretable={_fmt_num(item.get('late_event_ratio_interpretable'))}, "
+                f"freshness_signal_ratio={_fmt_num(item.get('freshness_signal_ratio'))}, "
                 f"fpr={_fmt_num(item['fpr'])}, fnr={_fmt_num(item['fnr'])}, "
                 f"kafka_lag={_fmt_num(item['kafka_lag_records'])}"
             )
@@ -647,6 +805,8 @@ def build_online_evaluation_summary(
     layer_c_rows = _read_csv(resolved_layer_c)
     watermark_rows = _read_csv(resolved_watermark) if resolved_watermark else []
     load_quality_rows = _read_csv(resolved_load_quality) if resolved_load_quality else []
+    warnings = _build_metric_warnings(layer_a_rows, layer_b_rows)
+    warnings.extend(_build_timeseries_semantics_warnings(layer_c_rows, watermark_rows, load_quality_rows))
 
     return {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -666,11 +826,17 @@ def build_online_evaluation_summary(
                 "load_quality_summary": str(resolved_load_quality) if resolved_load_quality else "",
             }
         ),
+        "warnings": warnings,
         "layer_a": _analyze_layer_a(layer_a_rows),
         "layer_b": _analyze_layer_b(layer_b_rows),
         "layer_c": _analyze_layer_c(layer_c_rows),
         "watermark": _analyze_watermark(watermark_rows),
         "load_quality": _analyze_load_quality(load_quality_rows),
+        "timeseries_semantics": {
+            "layer_c": _timeseries_semantics(layer_c_rows),
+            "watermark": _timeseries_semantics(watermark_rows),
+            "load_quality": _timeseries_semantics(load_quality_rows),
+        },
         "resource_observability": _analyze_resource_observability(layer_a_rows, layer_b_rows),
     }
 
@@ -684,6 +850,7 @@ def build_online_evaluation_markdown(summary: dict) -> str:
         summary["load_quality"],
         summary["resource_observability"],
         summary["sources"],
+        summary.get("warnings", []),
     )
 
 

@@ -17,6 +17,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", type=str, default="configs/streaming/online.yaml")
     parser.add_argument("--model", type=str, default="logistic_regression")
     parser.add_argument("--feature-set", type=str, default="full")
+    parser.add_argument("--execution-mode", type=str, default="docker", choices=["host", "docker"])
+    parser.add_argument("--python-exe", type=str, default=sys.executable)
+    parser.add_argument("--bootstrap-servers", type=str, default="")
     parser.add_argument(
         "--scenarios",
         nargs="*",
@@ -37,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--replay-retries", type=int, default=5)
     parser.add_argument("--replay-retry-wait-sec", type=int, default=3)
     parser.add_argument("--stream-run-seconds", type=int, default=180)
-    parser.add_argument("--startup-wait-sec", type=int, default=8)
+    parser.add_argument("--startup-wait-sec", type=int, default=60)
     parser.add_argument("--metrics-timeout-sec", type=int, default=120)
     parser.add_argument("--summary-csv", type=str, default="artifacts/streaming/online/layer_c_summary.csv")
     return parser.parse_args()
@@ -65,6 +68,9 @@ def build_options(args: argparse.Namespace) -> LayerCFaultMatrixOptions:
         stream_run_seconds=args.stream_run_seconds,
         startup_wait_sec=args.startup_wait_sec,
         metrics_timeout_sec=args.metrics_timeout_sec,
+        execution_mode=args.execution_mode,
+        python_executable=args.python_exe,
+        bootstrap_servers=args.bootstrap_servers,
         summary_csv=args.summary_csv,
     )
 

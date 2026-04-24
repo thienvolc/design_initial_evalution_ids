@@ -11,6 +11,8 @@ from confluent_kafka import Consumer, TopicPartition
 
 from ids_platform.common.config import load_yaml_mapping
 from ids_platform.common.paths import resolve_project_path
+from ids_platform.streaming.config import resolve_kafka_bootstrap_servers
+from ids_platform.streaming.matrices.common import is_terminal_metric_payload
 
 
 def parse_iso_timestamp(value: str) -> datetime | None:
@@ -50,7 +52,10 @@ def _assign_consumer_from_timestamp(
         for requested_partition, resolved_partition in zip(requested, resolved):
             offset = resolved_partition.offset
             if offset is None or int(offset) < 0:
-                assignments.append(TopicPartition(topic, requested_partition.partition, 0))
+                topic_partition = TopicPartition(topic, requested_partition.partition)
+                low, high = consumer.get_watermark_offsets(topic_partition, timeout=5.0, cached=False)
+                fallback_offset = max(int(high), int(low), 0)
+                assignments.append(TopicPartition(topic, requested_partition.partition, fallback_offset))
             else:
                 assignments.append(TopicPartition(topic, requested_partition.partition, int(offset)))
 
@@ -111,6 +116,9 @@ def read_first_matching_metric(
             if payload.get("run_tag") != run_tag:
                 continue
 
+            if is_terminal_metric_payload(payload):
+                continue
+
             payload_epoch_ms = payload.get("ts_epoch_ms")
             try:
                 payload_epoch_ms = int(payload_epoch_ms)
@@ -136,7 +144,9 @@ def read_first_matching_metric(
 def _load_metrics_connection(config_path: str) -> tuple[str, str]:
     cfg = load_yaml_mapping(resolve_project_path(config_path))
     kafka_cfg = cfg.get("kafka") or {}
-    bootstrap_servers = str(kafka_cfg.get("bootstrap_servers", "kafka:29092"))
+    bootstrap_servers = resolve_kafka_bootstrap_servers(
+        str(kafka_cfg.get("bootstrap_servers", "kafka:29092"))
+    )
     metrics_topic = str(kafka_cfg.get("metrics_topic", "ids.metrics"))
     return bootstrap_servers, metrics_topic
 

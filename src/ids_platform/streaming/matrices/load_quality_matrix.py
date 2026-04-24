@@ -10,12 +10,14 @@ from pathlib import Path
 
 from ids_platform.common.config import load_yaml_mapping
 from ids_platform.common.paths import PROJECT_ROOT, resolve_project_path
-from ids_platform.common.subprocess import run_command_or_raise, stop_background_process
+from ids_platform.common.subprocess import run_command_or_raise, start_background_process, stop_background_process
 from ids_platform.streaming.matrices.common import (
     annotate_sut_debug_summary,
     collect_matching_metrics,
+    runtime_log_output_path,
     wait_for_process_startup,
     summarize_runtime_metrics,
+    write_metrics_timeseries,
     write_summary_rows,
 )
 from ids_platform.streaming.replay.config import (
@@ -123,6 +125,7 @@ def _start_stream_process(
             "latest",
             "--load-profile",
             "trace_schedule",
+            "--stop-on-input-sentinel",
             "--run-seconds",
             str(max(run_seconds, 1)),
             "--reset-checkpoint",
@@ -145,11 +148,16 @@ def _start_stream_process(
             "latest",
             "--load-profile",
             "trace_schedule",
+            "--stop-on-input-sentinel",
             "--run-seconds",
             str(max(run_seconds, 1)),
             "--reset-checkpoint",
         ]
-    return subprocess.Popen(cmd, cwd=PROJECT_ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return start_background_process(
+        cmd,
+        cwd=PROJECT_ROOT,
+        stdout_path=runtime_log_output_path(run_tag=run_tag),
+    )
 
 
 def _to_row(run_tag: str, profile: dict, metrics_rows: list[dict], rate_schedule: str = "") -> dict:
@@ -162,6 +170,8 @@ def _to_row(run_tag: str, profile: dict, metrics_rows: list[dict], rate_schedule
         "ts_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "rows": "",
         "source_p95_ms": "",
+        "ingest_to_emit_p95_ms": "",
+        "source_to_emit_p95_ms": "",
         "proc_p95_ms": "",
         "e2e_p95_ms": "",
         "rows_per_sec_actual": "",
@@ -172,6 +182,9 @@ def _to_row(run_tag: str, profile: dict, metrics_rows: list[dict], rate_schedule
         "fnr": "",
         "kafka_lag_records": "",
         "late_event_ratio": "",
+        "late_event_ratio_interpretable": "",
+        "freshness_signal_ratio": "",
+        "metric_warnings": "",
         "status": "ok" if metrics_rows else "metrics_missing",
     }
     if not metrics_rows:
@@ -181,6 +194,8 @@ def _to_row(run_tag: str, profile: dict, metrics_rows: list[dict], rate_schedule
     row["rows"] = summary.get("rows_total", "")
     row["rows_per_sec_actual"] = summary.get("rows_per_sec_avg", "")
     row["source_p95_ms"] = summary.get("source_p95_ms_max", "")
+    row["ingest_to_emit_p95_ms"] = summary.get("ingest_to_emit_p95_ms_max", "")
+    row["source_to_emit_p95_ms"] = summary.get("source_to_emit_p95_ms_max", "")
     row["proc_p95_ms"] = summary.get("proc_p95_ms_max", "")
     row["e2e_p95_ms"] = summary.get("e2e_p95_ms_max", "")
     row["precision"] = summary.get("precision", "")
@@ -190,6 +205,9 @@ def _to_row(run_tag: str, profile: dict, metrics_rows: list[dict], rate_schedule
     row["fnr"] = summary.get("fnr", "")
     row["kafka_lag_records"] = summary.get("kafka_lag_records_max", "")
     row["late_event_ratio"] = summary.get("late_event_ratio_weighted", "")
+    row["late_event_ratio_interpretable"] = summary.get("late_event_ratio_interpretable_weighted", "")
+    row["freshness_signal_ratio"] = summary.get("freshness_signal_ratio_weighted", "")
+    row["metric_warnings"] = "; ".join(summary.get("metric_warnings") or [])
     return row
 
 
@@ -405,6 +423,9 @@ def run(options: LoadQualityMatrixOptions) -> int:
             start_timestamp_ms=max(run_start_timestamp_ms - 30_000, 0),
         )
         _log_phase("metrics_collect_done", run_tag=run_tag, metrics_rows=len(metrics_rows), elapsed_sec=f"{time.time() - run_started_at:.2f}")
+        timeseries_path = write_metrics_timeseries(metrics_rows, run_tag=run_tag)
+        if timeseries_path is not None:
+            _log_phase("timeseries_write_done", run_tag=run_tag, path=timeseries_path)
         legacy_row = _to_row(
             run_tag,
             profile,

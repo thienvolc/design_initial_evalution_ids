@@ -25,9 +25,11 @@ paths:
   feature_manifest: artifacts/offline/preprocessing/feature_manifest.json
   feature_manifest_by_feature_set:
     full: artifacts/offline/preprocessing/feature_manifest.json
+    reduced: artifacts/offline/preprocessing/feature_manifest_reduced.json
   valid_metrics_csv: artifacts/offline/models/valid_metrics.csv
   valid_metrics_csv_by_feature_set:
     full: artifacts/offline/models/valid_metrics.csv
+    reduced: artifacts/offline/models/valid_metrics_reduced.csv
   prediction_artifact_dir: artifacts/streaming/predictions
   checkpoint_root: artifacts/streaming/checkpoints
 
@@ -37,6 +39,7 @@ models:
     joblib_path: artifacts/offline/models/random_forest.joblib
     joblib_path_by_feature_set:
       full: artifacts/offline/models/random_forest.joblib
+      reduced: artifacts/offline/models/random_forest_reduced.joblib
     threshold:
 
   - name: logistic_regression
@@ -44,6 +47,7 @@ models:
     joblib_path: artifacts/offline/models/logistic_regression.joblib
     joblib_path_by_feature_set:
       full: artifacts/offline/models/logistic_regression.joblib
+      reduced: artifacts/offline/models/logistic_regression_reduced.joblib
     threshold:
 
   - name: gradient_boosting
@@ -51,4 +55,5 @@ models:
     joblib_path: artifacts/offline/models/gradient_boosting.joblib
     joblib_path_by_feature_set:
       full: artifacts/offline/models/gradient_boosting.joblib
+      reduced: artifacts/offline/models/gradient_boosting_reduced.joblib
     threshold:

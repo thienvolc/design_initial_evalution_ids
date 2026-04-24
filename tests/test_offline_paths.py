@@ -41,6 +41,29 @@ class OfflinePathsTests(unittest.TestCase):
             self.assertEqual(paths.feature_registry_path.name, "feature_registry_full.yaml")
             self.assertEqual(paths.log_dir, project_root / "logs" / "offline")
 
+    def test_suffixed_name_keeps_full_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            package_dir = project_root / "src" / "ids_platform" / "offline"
+            package_dir.mkdir(parents=True, exist_ok=True)
+
+            paths = Paths.build(package_dir, feature_set="full")
+
+            self.assertEqual(paths.feature_set_suffix, "")
+            self.assertEqual(paths.suffixed_name("best_model.joblib"), "best_model.joblib")
+
+    def test_suffixed_name_appends_reduced_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            package_dir = project_root / "src" / "ids_platform" / "offline"
+            package_dir.mkdir(parents=True, exist_ok=True)
+
+            paths = Paths.build(package_dir, feature_set="reduced")
+
+            self.assertEqual(paths.feature_set_suffix, "_reduced")
+            self.assertEqual(paths.suffixed_name("best_model.joblib"), "best_model_reduced.joblib")
+            self.assertEqual(paths.suffixed_name("valid_metrics.csv"), "valid_metrics_reduced.csv")
+
 
 if __name__ == "__main__":
     unittest.main()

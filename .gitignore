@@ -1,6 +1,8 @@
 .venv
 .idea
 .env
+docs/_archive
+artifacts/streaming/**
 
 # Ignore all parquet & csv files in data folder
 data/**/*.parquet

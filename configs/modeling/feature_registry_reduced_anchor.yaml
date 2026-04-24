@@ -1,0 +1,10 @@
+keep_features:
+  - Flow Duration
+  - Flow Byts/s
+  - Flow Pkts/s
+  - Tot Fwd Pkts
+  - Tot Bwd Pkts
+  - Pkt Len Mean
+  - Flow IAT Mean
+  - SYN Flag Cnt
+  - ACK Flag Cnt

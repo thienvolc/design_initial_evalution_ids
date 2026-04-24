@@ -17,8 +17,10 @@ from ids_platform.common.subprocess import (
 from ids_platform.streaming.matrices.common import (
     annotate_sut_debug_summary,
     collect_matching_metrics,
+    runtime_log_output_path,
     wait_for_process_startup,
     summarize_runtime_metrics,
+    write_metrics_timeseries,
     write_summary_rows,
 )
 from ids_platform.streaming.replay.config import (
@@ -93,9 +95,12 @@ def _flatten_metrics(
         "repeat_index": repeat_index,
         "model": model,
         "feature_set": feature_set,
+        "load_profile": f"{model}:{feature_set}",
         "ts_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "rows": "",
         "source_p95_ms": "",
+        "ingest_to_emit_p95_ms": "",
+        "source_to_emit_p95_ms": "",
         "proc_p95_ms": "",
         "e2e_p95_ms": "",
         "avg_prediction_score": "",
@@ -106,9 +111,16 @@ def _flatten_metrics(
         "fpr": "",
         "fnr": "",
         "late_event_ratio": "",
+        "late_event_ratio_interpretable": "",
+        "freshness_signal_ratio": "",
+        "watermark_delay_sec": "",
         "kafka_lag_records": "",
+        "driver_cpu_percent": "",
         "driver_rss_mb": "",
         "executor_mem_util_avg": "",
+        "executor_mem_util_p95": "",
+        "executor_count": "",
+        "metric_warnings": "",
         "status": "ok" if metrics_rows else "metrics_missing",
     }
 
@@ -122,6 +134,8 @@ def _flatten_metrics(
         {
             "rows": summary.get("rows_total", ""),
             "source_p95_ms": summary.get("source_p95_ms_max", ""),
+            "ingest_to_emit_p95_ms": summary.get("ingest_to_emit_p95_ms_max", ""),
+            "source_to_emit_p95_ms": summary.get("source_to_emit_p95_ms_max", ""),
             "proc_p95_ms": summary.get("proc_p95_ms_max", ""),
             "e2e_p95_ms": summary.get("e2e_p95_ms_max", ""),
             "avg_prediction_score": summary.get("avg_prediction_score_weighted", ""),
@@ -134,13 +148,26 @@ def _flatten_metrics(
     row["fpr"] = summary.get("fpr", "")
     row["fnr"] = summary.get("fnr", "")
     row["late_event_ratio"] = summary.get("late_event_ratio_weighted", "")
+    row["late_event_ratio_interpretable"] = summary.get("late_event_ratio_interpretable_weighted", "")
+    row["freshness_signal_ratio"] = summary.get("freshness_signal_ratio_weighted", "")
+    row["watermark_delay_sec"] = summary.get("watermark_delay_sec", "")
     row["kafka_lag_records"] = summary.get("kafka_lag_records_max", "")
+    row["driver_cpu_percent"] = summary.get("driver_cpu_percent_avg", "")
     row["driver_rss_mb"] = summary.get("driver_rss_mb_avg", "")
     row["executor_mem_util_avg"] = summary.get("executor_mem_util_avg", "")
+    row["executor_mem_util_p95"] = summary.get("executor_mem_util_p95_avg", "")
+    row["executor_count"] = summary.get("executor_count_max", "")
+    if not row["driver_cpu_percent"]:
+        row["driver_cpu_percent"] = ((last_payload.get("system") or {}).get("driver_cpu_percent", ""))
     if not row["driver_rss_mb"]:
         row["driver_rss_mb"] = ((last_payload.get("system") or {}).get("driver_rss_mb", ""))
     if not row["executor_mem_util_avg"]:
         row["executor_mem_util_avg"] = ((last_payload.get("system") or {}).get("executor_mem_util_avg", ""))
+    if not row["executor_mem_util_p95"]:
+        row["executor_mem_util_p95"] = ((last_payload.get("system") or {}).get("executor_mem_util_p95", ""))
+    if not row["executor_count"]:
+        row["executor_count"] = ((last_payload.get("system") or {}).get("executor_count", ""))
+    row["metric_warnings"] = "; ".join(summary.get("metric_warnings") or [])
     return row
 
 
@@ -283,10 +310,13 @@ def run(options: LayerBMatrixOptions) -> int:
                         feature_set,
                         "--run-tag",
                         warmup_tag,
+                        "--load-profile",
+                        f"{model}:{feature_set}",
                         "--input-run-tag",
                         warmup_tag,
                         "--override-starting-offsets",
                         "latest",
+                        "--stop-on-input-sentinel",
                         "--run-seconds",
                         str(warmup_stream_seconds),
                         "--reset-checkpoint",
@@ -298,7 +328,10 @@ def run(options: LayerBMatrixOptions) -> int:
                         warmup_tag=warmup_tag,
                         run_seconds=warmup_stream_seconds,
                     )
-                    warmup_stream_proc = start_background_process(warmup_stream_cmd)
+                    warmup_stream_proc = start_background_process(
+                        warmup_stream_cmd,
+                        stdout_path=runtime_log_output_path(run_tag=warmup_tag),
+                    )
                     try:
                         if not wait_for_process_startup(
                             warmup_stream_proc,
@@ -339,6 +372,8 @@ def run(options: LayerBMatrixOptions) -> int:
                         feature_set,
                         "--run-tag",
                         warmup_tag,
+                        "--load-profile",
+                        f"{model}:{feature_set}",
                         "--input-run-tag",
                         warmup_tag,
                         "--reset-checkpoint",
@@ -368,17 +403,23 @@ def run(options: LayerBMatrixOptions) -> int:
                     feature_set,
                     "--run-tag",
                     run_tag,
+                    "--load-profile",
+                    f"{model}:{feature_set}",
                     "--input-run-tag",
                     run_tag,
                     "--override-starting-offsets",
                     "latest",
+                    "--stop-on-input-sentinel",
                     "--run-seconds",
                     str(stream_seconds),
                     "--reset-checkpoint",
                 ]
 
                 _log_phase("main_stream_start", run_tag=run_tag, run_seconds=stream_seconds)
-                stream_proc = start_background_process(stream_cmd)
+                stream_proc = start_background_process(
+                    stream_cmd,
+                    stdout_path=runtime_log_output_path(run_tag=run_tag),
+                )
                 try:
                     if not wait_for_process_startup(
                         stream_proc,
@@ -418,6 +459,8 @@ def run(options: LayerBMatrixOptions) -> int:
                     feature_set,
                     "--run-tag",
                     run_tag,
+                    "--load-profile",
+                    f"{model}:{feature_set}",
                     "--input-run-tag",
                     run_tag,
                     "--reset-checkpoint",
@@ -447,6 +490,9 @@ def run(options: LayerBMatrixOptions) -> int:
                 metrics_rows=len(metrics_rows),
                 elapsed_sec=f"{time.time() - run_started_at:.2f}",
             )
+            timeseries_path = write_metrics_timeseries(metrics_rows, run_tag=run_tag)
+            if timeseries_path is not None:
+                _log_phase("timeseries_write_done", run_tag=run_tag, path=timeseries_path)
             legacy_row = _flatten_metrics(run_tag, repeat_index, model, feature_set, metrics_rows)
             row = annotate_sut_debug_summary(legacy_row)
             summary_rows.append(row)

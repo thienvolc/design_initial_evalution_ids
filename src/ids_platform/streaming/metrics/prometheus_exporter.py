@@ -10,6 +10,8 @@ from typing import Any
 import yaml
 from prometheus_client import Gauge, start_http_server
 
+from ids_platform.streaming.config import resolve_kafka_bootstrap_servers
+
 
 LABELS = ["run_tag", "model_name", "feature_set", "load_profile"]
 RUNTIME_METRICS = {
@@ -71,7 +73,7 @@ def _load_connection_from_config(config_path: Path | None) -> tuple[str, str]:
     kafka_cfg = payload.get("kafka") or {}
     if not isinstance(kafka_cfg, dict):
         raise ValueError(f"Missing kafka config in {config_path}")
-    bootstrap_servers = str(kafka_cfg.get("bootstrap_servers", "")).strip()
+    bootstrap_servers = resolve_kafka_bootstrap_servers(str(kafka_cfg.get("bootstrap_servers", "")).strip())
     metrics_topic = str(kafka_cfg.get("metrics_topic", "ids.metrics")).strip()
     if not bootstrap_servers:
         raise ValueError(f"Missing kafka.bootstrap_servers in {config_path}")

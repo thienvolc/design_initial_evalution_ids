@@ -75,6 +75,8 @@ def build_layer_c_command(args, python_executable: str) -> list[str]:
         "scripts/streaming/run_layer_c_matrix.py",
         "--config",
         args.config,
+        "--execution-mode",
+        "docker",
         "--scenarios",
         *compose_fault_scenarios(args.layer_c_repeats),
         "--warmup-rows",

@@ -13,6 +13,7 @@ from ids_platform.streaming.matrices.common import (
     annotate_sut_debug_summary,
     collect_matching_metrics,
     summarize_runtime_metrics,
+    write_metrics_timeseries,
     write_summary_rows,
 )
 from ids_platform.streaming.replay.config import (
@@ -77,13 +78,18 @@ def _wait_metrics(
 def _to_row(run_tag: str, watermark_delay_sec: int, metrics_rows: list[dict]) -> dict:
     row = {
         "run_tag": run_tag,
+        "load_profile": f"watermark_delay_{watermark_delay_sec}s",
         "watermark_delay_sec": watermark_delay_sec,
         "drop_late_events": "",
         "ts_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "rows": "",
         "late_event_ratio": "",
+        "late_event_ratio_interpretable": "",
+        "freshness_signal_ratio": "",
         "event_lateness_p95_ms": "",
         "source_p95_ms": "",
+        "ingest_to_emit_p95_ms": "",
+        "source_to_emit_p95_ms": "",
         "proc_p95_ms": "",
         "e2e_p95_ms": "",
         "precision": "",
@@ -91,6 +97,7 @@ def _to_row(run_tag: str, watermark_delay_sec: int, metrics_rows: list[dict]) ->
         "f1": "",
         "fpr": "",
         "fnr": "",
+        "metric_warnings": "",
         "status": "ok" if metrics_rows else "metrics_missing",
     }
     if not metrics_rows:
@@ -101,8 +108,12 @@ def _to_row(run_tag: str, watermark_delay_sec: int, metrics_rows: list[dict]) ->
     row["drop_late_events"] = bool((last_payload.get("system_knobs") or {}).get("drop_late_events", False))
     row["rows"] = summary.get("rows_total", "")
     row["late_event_ratio"] = summary.get("late_event_ratio_weighted", "")
+    row["late_event_ratio_interpretable"] = summary.get("late_event_ratio_interpretable_weighted", "")
+    row["freshness_signal_ratio"] = summary.get("freshness_signal_ratio_weighted", "")
     row["event_lateness_p95_ms"] = summary.get("event_lateness_p95_ms_max", "")
     row["source_p95_ms"] = summary.get("source_p95_ms_max", "")
+    row["ingest_to_emit_p95_ms"] = summary.get("ingest_to_emit_p95_ms_max", "")
+    row["source_to_emit_p95_ms"] = summary.get("source_to_emit_p95_ms_max", "")
     row["proc_p95_ms"] = summary.get("proc_p95_ms_max", "")
     row["e2e_p95_ms"] = summary.get("e2e_p95_ms_max", "")
     row["precision"] = summary.get("precision", "")
@@ -110,6 +121,7 @@ def _to_row(run_tag: str, watermark_delay_sec: int, metrics_rows: list[dict]) ->
     row["f1"] = summary.get("f1", "")
     row["fpr"] = summary.get("fpr", "")
     row["fnr"] = summary.get("fnr", "")
+    row["metric_warnings"] = "; ".join(summary.get("metric_warnings") or [])
     return row
 
 
@@ -204,6 +216,8 @@ def run(options: WatermarkMatrixOptions) -> int:
                 options.feature_set,
                 "--run-tag",
                 warmup_tag,
+                "--load-profile",
+                f"watermark_delay_{delay}s",
                 "--input-run-tag",
                 warmup_tag,
                 "--override-watermark-delay-sec",
@@ -232,6 +246,8 @@ def run(options: WatermarkMatrixOptions) -> int:
             options.feature_set,
             "--run-tag",
             run_tag,
+            "--load-profile",
+            f"watermark_delay_{delay}s",
             "--input-run-tag",
             run_tag,
             "--override-watermark-delay-sec",
@@ -265,6 +281,9 @@ def run(options: WatermarkMatrixOptions) -> int:
             metrics_rows=len(metrics_rows),
             elapsed_sec=f"{time.time() - run_started_at:.2f}",
         )
+        timeseries_path = write_metrics_timeseries(metrics_rows, run_tag=run_tag)
+        if timeseries_path is not None:
+            _log_phase("timeseries_write_done", run_tag=run_tag, path=timeseries_path)
         legacy_row = _to_row(run_tag, delay, metrics_rows)
         row = annotate_sut_debug_summary(legacy_row)
         rows.append(row)

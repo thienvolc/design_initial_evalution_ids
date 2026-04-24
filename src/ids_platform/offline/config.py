@@ -99,8 +99,12 @@ class MemoryConfig:
 @dataclass(frozen=True)
 class FeatureSelectionConfig:
     enabled: bool = False
+    strategy: str = "topk"            # topk | hybrid | manual
     method: str = "f_classif"           # f_classif | chi2 | mutual_info
     k: int = 20
+    candidate_registry: str | None = None
+    required_registry: str | None = None
+    apply_feature_sets: tuple[str, ...] = ("reduced",)
 
 
 @dataclass(frozen=True)
@@ -147,8 +151,24 @@ class PreprocessingConfig:
             ),
             feature_selection=FeatureSelectionConfig(
                 enabled=bool(feature_selection_config.get("enabled", False)),
+                strategy=str(feature_selection_config.get("strategy", "topk")),
                 method=str(feature_selection_config.get("method", "f_classif")),
                 k=int(feature_selection_config.get("k", 20)),
+                candidate_registry=(
+                    str(feature_selection_config.get("candidate_registry")).strip()
+                    if feature_selection_config.get("candidate_registry") not in (None, "")
+                    else None
+                ),
+                required_registry=(
+                    str(feature_selection_config.get("required_registry")).strip()
+                    if feature_selection_config.get("required_registry") not in (None, "")
+                    else None
+                ),
+                apply_feature_sets=tuple(
+                    str(item).strip()
+                    for item in (feature_selection_config.get("apply_feature_sets") or ["reduced"])
+                    if str(item).strip()
+                ),
             ),
             models=models,
         )

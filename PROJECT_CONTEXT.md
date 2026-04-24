@@ -220,7 +220,7 @@
 - Visible technical debt:
   - large configs/profiles and experiment orchestration are still operationally complex
   - some matrix runs are long and sensitive to timing assumptions
-  - repo lacks a single canonical architecture doc; this file is intended to fill that gap
+  - legacy docs, runbooks, and memory files can drift from the current canonical docs if not maintained together
 
 # Common Tasks
 

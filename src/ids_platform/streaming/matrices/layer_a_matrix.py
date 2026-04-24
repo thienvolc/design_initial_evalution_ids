@@ -17,8 +17,10 @@ from ids_platform.common.subprocess import (
 from ids_platform.streaming.matrices.common import (
     annotate_sut_debug_summary,
     collect_matching_metrics,
+    runtime_log_output_path,
     summarize_runtime_metrics,
     wait_for_process_startup,
+    write_metrics_timeseries,
     write_summary_rows,
 )
 from ids_platform.streaming.replay.config import (
@@ -126,12 +128,15 @@ def _aggregate_row(
         "max_offsets_per_trigger": profile["max_offsets_per_trigger"],
         "shuffle_partitions": profile["shuffle_partitions"],
         "trigger_interval": profile.get("trigger_interval") or "",
+        "load_profile": profile["name"],
         "ts_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "batches": 0,
         "rows_total": 0,
         "rows_per_sec_avg": "",
         "batch_wall_ms_avg": "",
         "source_p95_ms_max": "",
+        "ingest_to_emit_p95_ms_max": "",
+        "source_to_emit_p95_ms_max": "",
         "proc_p95_ms_max": "",
         "e2e_p95_ms_max": "",
         "avg_prediction_score": "",
@@ -142,9 +147,16 @@ def _aggregate_row(
         "fpr_avg": "",
         "fnr_avg": "",
         "late_event_ratio_avg": "",
+        "late_event_ratio_interpretable_avg": "",
+        "freshness_signal_ratio_avg": "",
+        "watermark_delay_sec": "",
         "kafka_lag_records_max": "",
+        "driver_cpu_percent_avg": "",
         "driver_rss_mb_avg": "",
         "executor_mem_util_avg": "",
+        "executor_mem_util_p95_avg": "",
+        "executor_count_max": "",
+        "metric_warnings": "",
         "status": "ok" if metrics_rows else "metrics_missing",
     }
 
@@ -157,6 +169,8 @@ def _aggregate_row(
     row["rows_per_sec_avg"] = summary.get("rows_per_sec_avg", "")
     row["batch_wall_ms_avg"] = summary.get("batch_wall_ms_avg", "")
     row["source_p95_ms_max"] = summary.get("source_p95_ms_max", "")
+    row["ingest_to_emit_p95_ms_max"] = summary.get("ingest_to_emit_p95_ms_max", "")
+    row["source_to_emit_p95_ms_max"] = summary.get("source_to_emit_p95_ms_max", "")
     row["proc_p95_ms_max"] = summary.get("proc_p95_ms_max", "")
     row["e2e_p95_ms_max"] = summary.get("e2e_p95_ms_max", "")
     row["avg_prediction_score"] = summary.get("avg_prediction_score_weighted", "")
@@ -167,9 +181,16 @@ def _aggregate_row(
     row["fpr_avg"] = summary.get("fpr", "")
     row["fnr_avg"] = summary.get("fnr", "")
     row["late_event_ratio_avg"] = summary.get("late_event_ratio_weighted", "")
+    row["late_event_ratio_interpretable_avg"] = summary.get("late_event_ratio_interpretable_weighted", "")
+    row["freshness_signal_ratio_avg"] = summary.get("freshness_signal_ratio_weighted", "")
+    row["watermark_delay_sec"] = summary.get("watermark_delay_sec", "")
     row["kafka_lag_records_max"] = summary.get("kafka_lag_records_max", "")
+    row["driver_cpu_percent_avg"] = summary.get("driver_cpu_percent_avg", "")
     row["driver_rss_mb_avg"] = summary.get("driver_rss_mb_avg", "")
     row["executor_mem_util_avg"] = summary.get("executor_mem_util_avg", "")
+    row["executor_mem_util_p95_avg"] = summary.get("executor_mem_util_p95_avg", "")
+    row["executor_count_max"] = summary.get("executor_count_max", "")
+    row["metric_warnings"] = "; ".join(summary.get("metric_warnings") or [])
     return row
 
 
@@ -284,6 +305,8 @@ def run(options: LayerAMatrixOptions) -> int:
                         options.feature_set,
                         "--run-tag",
                         warmup_tag,
+                        "--load-profile",
+                        profile["name"],
                         "--input-run-tag",
                         warmup_tag,
                         "--override-starting-offsets",
@@ -292,6 +315,7 @@ def run(options: LayerAMatrixOptions) -> int:
                         str(profile["max_offsets_per_trigger"]),
                         "--override-shuffle-partitions",
                         str(profile["shuffle_partitions"]),
+                        "--stop-on-input-sentinel",
                         "--run-seconds",
                         str(warmup_stream_seconds),
                         "--reset-checkpoint",
@@ -305,7 +329,10 @@ def run(options: LayerAMatrixOptions) -> int:
                         warmup_tag=warmup_tag,
                         run_seconds=warmup_stream_seconds,
                     )
-                    warmup_stream_proc = start_background_process(warmup_stream_cmd)
+                    warmup_stream_proc = start_background_process(
+                        warmup_stream_cmd,
+                        stdout_path=runtime_log_output_path(run_tag=warmup_tag),
+                    )
                     try:
                         if not wait_for_process_startup(
                             warmup_stream_proc,
@@ -346,6 +373,8 @@ def run(options: LayerAMatrixOptions) -> int:
                         options.feature_set,
                         "--run-tag",
                         warmup_tag,
+                        "--load-profile",
+                        profile["name"],
                         "--input-run-tag",
                         warmup_tag,
                         "--override-max-offsets",
@@ -381,6 +410,8 @@ def run(options: LayerAMatrixOptions) -> int:
                     options.feature_set,
                     "--run-tag",
                     run_tag,
+                    "--load-profile",
+                    profile["name"],
                     "--input-run-tag",
                     run_tag,
                     "--override-starting-offsets",
@@ -389,6 +420,7 @@ def run(options: LayerAMatrixOptions) -> int:
                     str(profile["max_offsets_per_trigger"]),
                     "--override-shuffle-partitions",
                     str(profile["shuffle_partitions"]),
+                    "--stop-on-input-sentinel",
                     "--run-seconds",
                     str(stream_seconds),
                     "--reset-checkpoint",
@@ -397,7 +429,10 @@ def run(options: LayerAMatrixOptions) -> int:
                     stream_cmd.extend(["--override-trigger-interval", str(profile["trigger_interval"])])
 
                 _log_phase("main_stream_start", run_tag=run_tag, run_seconds=stream_seconds)
-                stream_proc = start_background_process(stream_cmd)
+                stream_proc = start_background_process(
+                    stream_cmd,
+                    stdout_path=runtime_log_output_path(run_tag=run_tag),
+                )
                 try:
                     if not wait_for_process_startup(
                         stream_proc,
@@ -437,6 +472,8 @@ def run(options: LayerAMatrixOptions) -> int:
                     options.feature_set,
                     "--run-tag",
                     run_tag,
+                    "--load-profile",
+                    profile["name"],
                     "--input-run-tag",
                     run_tag,
                     "--override-max-offsets",
@@ -472,6 +509,9 @@ def run(options: LayerAMatrixOptions) -> int:
                 metrics_rows=len(metrics_rows),
                 elapsed_sec=f"{time.time() - run_started_at:.2f}",
             )
+            timeseries_path = write_metrics_timeseries(metrics_rows, run_tag=run_tag)
+            if timeseries_path is not None:
+                _log_phase("timeseries_write_done", run_tag=run_tag, path=timeseries_path)
 
             legacy_summary = _aggregate_row(
                 run_tag=run_tag,

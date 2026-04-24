@@ -43,7 +43,11 @@ docker compose up -d zookeeper kafka ids-dev
 docker compose exec -T ids-dev python <script> <args>
 ```
 
-Use host execution only when a profile explicitly requires `runtime: host` or when you are debugging intentionally outside Docker.
+Layer C is the one deliberate exception in local orchestration:
+- the Layer C matrix runner stays on the host so it can inject Docker faults such as Kafka restarts
+- the SUT, replay, and metrics readers launched by Layer C still run in Docker with `execution_mode=docker`
+
+Do not run Layer C on Windows host Spark directly. That path is unsupported because Spark checkpoint/file handling on Windows causes Hadoop native I/O failures.
 
 ## Canonical Evaluation Flow
 
@@ -112,6 +116,18 @@ Run a profile:
 
 ```powershell
 docker compose exec -T ids-dev python scripts/streaming/run_online_profile.py --profile-config experiments/streaming/profiles/local_profiles.yaml --profile smoke_gate
+```
+
+Run the Layer C profile from the host:
+
+```powershell
+python scripts/streaming/run_online_profile.py --profile-config experiments/streaming/profiles/local_profiles.yaml --profile layer_c_local_light
+```
+
+Run Layer C directly from the host with Docker-backed execution:
+
+```powershell
+python scripts/streaming/run_layer_c_matrix.py --config configs/streaming/online.yaml --execution-mode docker --scenarios producer_restart
 ```
 
 Run a matrix directly:

@@ -7,9 +7,12 @@ def build_raw_schema(full_feature_columns: list[str]):
     raw_schema_fields = [
         StructField("flow_id", StringType(), nullable=True),
         StructField("replay_run_tag", StringType(), nullable=True),
+        StructField("is_control_record", IntegerType(), nullable=True),
+        StructField("control_type", StringType(), nullable=True),
         StructField("event_time", StringType(), nullable=True),
         StructField("timestamp", StringType(), nullable=True),
         StructField("source_ingest_ts", StringType(), nullable=True),
+        StructField("source_ingest_epoch_ms", DoubleType(), nullable=True),
         StructField("label_binary", IntegerType(), nullable=True),
         StructField("label", StringType(), nullable=True),
     ]
@@ -74,6 +77,17 @@ def filter_input_run_tag(parsed_df, input_run_tag: str):
     return parsed_df.filter(F.col("replay_run_tag") == F.lit(normalized_tag))
 
 
+def split_control_and_data_records(parsed_df):
+    from pyspark.sql import functions as F
+
+    control_predicate = (
+        F.coalesce(F.col("is_control_record"), F.lit(0)).cast("int") != F.lit(0)
+    ) | (F.coalesce(F.col("control_type"), F.lit("")) != F.lit(""))
+    control_df = parsed_df.filter(control_predicate)
+    data_df = parsed_df.filter(~control_predicate)
+    return data_df, control_df
+
+
 def prepare_feature_columns(
     parsed_df,
     *,
@@ -119,13 +133,18 @@ def add_event_timing_columns(
         F.to_timestamp("event_time"),
         F.to_timestamp("timestamp"),
     )
+    source_ingest_time_ts = F.when(
+        F.col("source_ingest_epoch_ms").isNotNull(),
+        F.timestamp_millis(F.col("source_ingest_epoch_ms").cast("long")),
+    ).otherwise(F.to_timestamp("source_ingest_ts"))
     ingest_time = F.coalesce(F.col("kafka_timestamp"), F.current_timestamp())
     initial_projection = [F.col(column_name) for column_name in prepared_df.columns]
     initial_projection.extend(
         [
             event_time_ts.alias("event_time_ts"),
             ingest_time.alias("ingest_time"),
-            F.coalesce(F.to_timestamp("source_ingest_ts"), event_time_ts).alias("watermark_ref_time"),
+            source_ingest_time_ts.alias("source_ingest_time_ts"),
+            F.coalesce(source_ingest_time_ts, event_time_ts).alias("watermark_ref_time"),
         ]
     )
     timed_df = prepared_df.select(*initial_projection)
@@ -165,11 +184,11 @@ def add_source_latency_columns(scored_df, *, source_mode: str):
     if source_mode == "source_timestamp":
         return scored_df.withColumn(
             "source_to_ingest_ms",
-            F.when(F.isnull(F.col("source_ingest_ts")), F.lit(0.0))
+            F.when(F.isnull(F.col("source_ingest_time_ts")), F.lit(0.0))
             .otherwise(
                 F.greatest(
                     F.lit(0.0),
-                    F.unix_millis(F.col("ingest_time")) - F.unix_millis(F.to_timestamp("source_ingest_ts")),
+                    F.unix_millis(F.col("ingest_time")) - F.unix_millis(F.col("source_ingest_time_ts")),
                 )
             )
             .cast("double"),
@@ -188,16 +207,29 @@ def add_source_latency_columns(scored_df, *, source_mode: str):
     )
 
 
-def add_processing_latency_columns(scored_df):
+def add_processing_latency_columns(scored_df, *, stream_started_epoch_ms: int = 0):
     from pyspark.sql import functions as F
 
+    stream_started_ms = F.lit(int(stream_started_epoch_ms) if int(stream_started_epoch_ms) > 0 else 0).cast("long")
+    effective_ingest_ms = F.greatest(
+        F.unix_millis(F.col("ingest_time")),
+        stream_started_ms,
+    )
+    effective_source_anchor_ms = F.greatest(
+        F.coalesce(
+            F.unix_millis(F.col("source_ingest_time_ts")),
+            F.unix_millis(F.col("event_time_ts")),
+            stream_started_ms,
+        ),
+        stream_started_ms,
+    )
     projected_columns = [F.col(column_name) for column_name in scored_df.columns]
     projected_columns.extend(
         [
-            (F.unix_millis(F.col("emit_time")) - F.unix_millis(F.col("ingest_time"))).cast("double").alias("processing_ms"),
+            (F.unix_millis(F.col("emit_time")) - effective_ingest_ms).cast("double").alias("processing_ms"),
             (
                 F.unix_millis(F.col("emit_time"))
-                - F.unix_millis(F.coalesce(F.to_timestamp("source_ingest_ts"), F.col("event_time_ts")))
+                - effective_source_anchor_ms
             ).cast("double").alias("end_to_end_ms"),
         ]
     )

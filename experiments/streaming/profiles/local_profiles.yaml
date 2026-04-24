@@ -103,7 +103,7 @@ profiles:
       combo_policy:
         selected_pairs:
           - "logistic_regression:full"
-          # - "random_forest:full"
+          - "random_forest:full"
           - "gradient_boosting:full"
       pass_fail:
         required: false
@@ -119,7 +119,7 @@ profiles:
       warmup_rate_schedule: "800:25"
       model_feature_pairs:
         - "logistic_regression:full"
-        # - "random_forest:full"
+        - "random_forest:full"
         - "gradient_boosting:full"
       repeats: 1
       max_rows: 50000
@@ -179,6 +179,7 @@ profiles:
         min_recovery_events: 2
         max_recovery_seconds: 180
     args:
+      execution_mode: docker
       model: logistic_regression
       feature_set: full
       scenarios: [kafka_restart, spark_process_restart, producer_restart]
@@ -190,7 +191,7 @@ profiles:
       producer_restart_pause_sec: 2
       replay_retries: 6
       replay_retry_wait_sec: 4
-      startup_wait_sec: 8
+      startup_wait_sec: 60
       metrics_timeout_sec: 900
       stream_run_seconds: 600
       summary_csv: artifacts/streaming/scale_up/layer_c_summary_local_medium.csv

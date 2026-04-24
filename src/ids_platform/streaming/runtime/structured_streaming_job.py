@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import signal
 import shutil
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Protocol, cast
 
-from ids_platform.common.paths import PROJECT_ROOT, resolve_project_path
+from ids_platform.common.paths import resolve_project_path
 from ids_platform.streaming.artifacts import (
     load_thresholds,
     resolve_feature_set_path,
@@ -17,11 +21,13 @@ from ids_platform.streaming.artifacts import (
 )
 from ids_platform.streaming.config import load_structured_streaming_app_config
 from ids_platform.streaming.metrics.system import (
+    prime_process_metrics_probe,
     probe_executor_memory_utilization,
     probe_kafka_lag,
     probe_process_metrics,
-    safe_ratio,
+    safe_ratio_or_none,
 )
+from ids_platform.streaming.runtime.control import clear_shutdown_request, shutdown_request_path
 from ids_platform.streaming.runtime.pipeline import (
     add_event_timing_columns,
     add_processing_latency_columns,
@@ -31,10 +37,15 @@ from ids_platform.streaming.runtime.pipeline import (
     build_raw_schema,
     filter_input_run_tag,
     prepare_feature_columns,
+    split_control_and_data_records,
 )
 from ids_platform.streaming.runtime.query import apply_trigger, safe_tag
-from ids_platform.streaming.runtime.scoring import add_prediction_columns, make_score_udf
-from ids_platform.offline.config import load_feature_list, load_json
+from ids_platform.streaming.runtime.scoring import (
+    add_prediction_columns,
+    make_score_udf,
+    prewarm_score_udf_model,
+)
+from ids_platform.offline.config import load_json
 
 class _KafkaProducerLike(Protocol):
     def produce(self, *, topic: str, value: str) -> None: ...
@@ -45,6 +56,9 @@ class _KafkaProducerLike(Protocol):
 _METRICS_PRODUCER_CACHE: dict[str, _KafkaProducerLike] = {}
 _METRICS_PUBLISH_FLUSH_TIMEOUT_SEC = 1.0
 _QUERY_STOP_TIMEOUT_SEC = 30
+_INPUT_SENTINEL_GRACEFUL_SHUTDOWN_TIMEOUT_SEC = 300
+_INPUT_SENTINEL_QUIESCENCE_TIMEOUT_SEC = 60
+_INPUT_SENTINEL_PRESTOP_WAIT_SEC = 15
 
 
 def _log_runtime_event(event: str, **fields) -> None:
@@ -54,6 +68,49 @@ def _log_runtime_event(event: str, **fields) -> None:
             continue
         parts.append(f"{key}={value}")
     print(" ".join(parts), flush=True)
+
+
+def _resolve_kafka_packages(configured_packages: str) -> str:
+    package_text = str(configured_packages or "").strip()
+    if not package_text:
+        package_text = "org.apache.spark:spark-sql-kafka-0-10"
+
+    try:
+        import pyspark
+
+        pyspark_version = str(pyspark.__version__).strip()
+        pyspark_home = Path(pyspark.__file__).resolve().parent
+    except Exception:
+        pyspark_version = ""
+        pyspark_home = None
+
+    scala_suffix = ""
+    if pyspark_home is not None:
+        spark_sql_jars = sorted((pyspark_home / "jars").glob("spark-sql_*.jar"))
+        if spark_sql_jars:
+            match = re.search(r"spark-sql(_2\.\d+)-", spark_sql_jars[0].name)
+            if match:
+                scala_suffix = match.group(1)
+
+    if not pyspark_version:
+        return package_text
+
+    resolved_packages: list[str] = []
+    for package_entry in package_text.split(","):
+        entry = package_entry.strip()
+        if not entry:
+            continue
+        if entry.startswith("org.apache.spark:spark-sql-kafka-0-10"):
+            artifact_base = "org.apache.spark:spark-sql-kafka-0-10"
+            version_suffix = ""
+            if ":" in entry:
+                artifact_base, version_suffix = entry.rsplit(":", 1)
+            artifact_base = re.sub(r"_2\.\d+$", "", artifact_base)
+            if scala_suffix:
+                artifact_base = f"{artifact_base}{scala_suffix}"
+            entry = f"{artifact_base}:{pyspark_version}"
+        resolved_packages.append(entry)
+    return ",".join(resolved_packages)
 
 
 @dataclass(frozen=True)
@@ -76,6 +133,16 @@ class StructuredStreamingJobOptions:
     reset_checkpoint: bool = False
     available_now: bool = False
     run_seconds: int = 0
+    stop_on_input_sentinel: bool = False
+
+
+def resolve_load_profile(raw_load_profile: str, *, model_name: str, feature_set: str) -> str:
+    text = str(raw_load_profile).strip()
+    if text:
+        return text
+    model_text = str(model_name).strip() or "unknown_model"
+    feature_text = str(feature_set).strip() or "unknown_feature_set"
+    return f"{model_text}:{feature_text}"
 
 
 def _collect_batch_offsets(batch_df):
@@ -252,6 +319,15 @@ def _publish_run_completion_metric(
     )
 
 
+def _compute_f1_score(precision: float | None, recall: float | None) -> float | None:
+    if precision is None or recall is None:
+        return None
+    denominator = precision + recall
+    if denominator <= 0:
+        return 0.0
+    return float((2.0 * precision * recall) / denominator)
+
+
 def _stop_query_gracefully(query, *, name: str) -> None:
     try:
         if query.isActive:
@@ -260,6 +336,207 @@ def _stop_query_gracefully(query, *, name: str) -> None:
     except Exception as exc:
         print(
             f"[warn] query shutdown issue name={name}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def _await_query_termination(query, *, name: str, timeout_sec: float) -> bool:
+    try:
+        if not query.isActive:
+            return True
+        return bool(query.awaitTermination(timeout_sec))
+    except Exception as exc:
+        print(
+            f"[warn] query await termination issue name={name}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return False
+
+
+def _stop_query_with_soft_wait(
+    query,
+    *,
+    name: str,
+    prewait_sec: float,
+    stop_timeout_sec: float = _QUERY_STOP_TIMEOUT_SEC,
+) -> None:
+    try:
+        if query is None:
+            return
+        if _await_query_termination(query, name=name, timeout_sec=max(float(prewait_sec), 0.0)):
+            return
+        if query.isActive:
+            query.stop()
+        query.awaitTermination(stop_timeout_sec)
+    except Exception as exc:
+        print(
+            f"[warn] query shutdown issue name={name}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def _latest_query_progress_signature(query) -> str:
+    try:
+        progress = query.lastProgress
+    except Exception:
+        progress = None
+    if not progress:
+        return ""
+    if isinstance(progress, dict):
+        batch_id = progress.get("batchId")
+        timestamp = progress.get("timestamp")
+        num_input_rows = progress.get("numInputRows")
+        return f"{batch_id}:{timestamp}:{num_input_rows}"
+    try:
+        batch_id = getattr(progress, "batchId", None)
+        timestamp = getattr(progress, "timestamp", None)
+        num_input_rows = getattr(progress, "numInputRows", None)
+        return f"{batch_id}:{timestamp}:{num_input_rows}"
+    except Exception:
+        return str(progress)
+
+
+def _wait_for_query_progress_quiescence(
+    queries: list[tuple[object, str]],
+    *,
+    idle_sec: float,
+    timeout_sec: float,
+    poll_sec: float = 0.5,
+) -> None:
+    active_queries = [(query, name) for query, name in queries if query is not None]
+    if not active_queries:
+        return
+
+    observed = {name: _latest_query_progress_signature(query) for query, name in active_queries}
+    last_change_at = time.time()
+    deadline = time.time() + max(float(timeout_sec), 0.0)
+    while time.time() < deadline:
+        any_active = False
+        changed = False
+        for query, name in active_queries:
+            try:
+                is_active = bool(query.isActive)
+            except Exception:
+                is_active = False
+            if is_active:
+                any_active = True
+            signature = _latest_query_progress_signature(query)
+            if signature != observed.get(name, ""):
+                observed[name] = signature
+                changed = True
+        if changed:
+            last_change_at = time.time()
+        if not any_active or (time.time() - last_change_at) >= max(float(idle_sec), 0.0):
+            return
+        time.sleep(max(float(poll_sec), 0.1))
+
+
+def _wait_for_queries_inactive(
+    queries: list[tuple[object, str]],
+    *,
+    timeout_sec: float,
+    poll_sec: float = 0.5,
+) -> bool:
+    active_queries = [(query, name) for query, name in queries if query is not None]
+    if not active_queries:
+        return True
+
+    deadline = time.time() + max(float(timeout_sec), 0.0)
+    while time.time() < deadline:
+        any_active = False
+        for query, _name in active_queries:
+            try:
+                if query.isActive:
+                    any_active = True
+                    break
+            except Exception:
+                continue
+        if not any_active:
+            return True
+        time.sleep(max(float(poll_sec), 0.1))
+    return False
+
+
+def _wait_with_stop_signal(stop_requested: threading.Event, *, timeout_sec: float, poll_sec: float = 0.5) -> bool:
+    deadline = time.time() + max(float(timeout_sec), 0.0)
+    while time.time() < deadline:
+        if stop_requested.is_set():
+            return True
+        remaining = deadline - time.time()
+        time.sleep(min(max(float(poll_sec), 0.1), max(remaining, 0.0)))
+    return stop_requested.is_set()
+
+
+def _drain_query_process_all_available(query, *, name: str) -> None:
+    try:
+        if not query.isActive:
+            return
+        query.processAllAvailable()
+    except Exception as exc:
+        print(
+            f"[warn] query drain issue name={name}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def _shutdown_request_seen(run_tag: str) -> bool:
+    normalized_run_tag = str(run_tag or "").strip()
+    if not normalized_run_tag:
+        return False
+    return shutdown_request_path(normalized_run_tag).exists()
+
+
+def _shutdown_after_input_sentinel(
+    *,
+    data_queries: list[tuple[object, str]],
+    sentinel_query,
+    run_tag: str,
+) -> None:
+    active_data_queries = [(query, name) for query, name in data_queries if query is not None]
+
+    for query, name in active_data_queries:
+        try:
+            if query.isActive:
+                _drain_query_process_all_available(query, name=name)
+        except Exception:
+            continue
+
+    _wait_for_query_progress_quiescence(
+        active_data_queries,
+        idle_sec=15.0,
+        timeout_sec=float(_INPUT_SENTINEL_QUIESCENCE_TIMEOUT_SEC),
+        poll_sec=0.5,
+    )
+
+    if sentinel_query is not None and sentinel_query.isActive:
+        _stop_query_gracefully(sentinel_query, name="input_sentinel")
+
+    for query, name in active_data_queries:
+        try:
+            if query.isActive:
+                _stop_query_with_soft_wait(
+                    query,
+                    name=name,
+                    prewait_sec=float(_INPUT_SENTINEL_PRESTOP_WAIT_SEC),
+                )
+        except Exception:
+            continue
+
+    drained_to_inactive = _wait_for_queries_inactive(
+        active_data_queries,
+        timeout_sec=float(_QUERY_STOP_TIMEOUT_SEC),
+        poll_sec=0.5,
+    )
+    if not drained_to_inactive:
+        print(
+            (
+                "[warn] data queries still active after sentinel shutdown "
+                f"run_tag={run_tag} timeout_sec={_QUERY_STOP_TIMEOUT_SEC}"
+            ),
             file=sys.stderr,
             flush=True,
         )
@@ -284,6 +561,12 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
 
     if model_entry is None:
         raise ValueError(f"Model {model_name} is not enabled in config")
+    resolved_load_profile = resolve_load_profile(
+        options.load_profile,
+        model_name=model_name,
+        feature_set=options.feature_set,
+    )
+    clear_shutdown_request(options.run_tag)
 
 
     # ── paths ───────────────────────────────────────────
@@ -323,23 +606,10 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
 
     # ── features ────────────────────────────────────────
     manifest = load_json(manifest_path)
-    full_feature_columns = [str(column_name) for column_name in manifest.get("feature_columns", [])]
-    if not full_feature_columns:
+    model_feature_columns = [str(column_name) for column_name in manifest.get("feature_columns", [])]
+    if not model_feature_columns:
         raise ValueError("feature_columns missing in feature manifest")
-
-    if options.feature_set == "reduced":
-        reduced_registry = PROJECT_ROOT / "configs" / "modeling" / "feature_registry.yaml"
-        selected_features = load_feature_list(reduced_registry)
-        active_feature_columns = [
-            column_name
-            for column_name in selected_features
-            if column_name in full_feature_columns
-        ]
-    else:
-        active_feature_columns = full_feature_columns
-
-    if not active_feature_columns:
-        raise ValueError(f"No active features for feature_set={options.feature_set}")
+    active_feature_columns = model_feature_columns
 
 
     # ── impute ──────────────────────────────────────────
@@ -374,17 +644,26 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
         .config("spark.driver.bindAddress", spark_config.driver_bind_address)
         .config("spark.sql.shuffle.partitions", str(shuffle_partitions))
         .config("spark.sql.execution.arrow.pyspark.enabled", str(spark_config.arrow_enabled).lower())
+        .config("spark.python.worker.reuse", "true")
+        .config("spark.hadoop.io.native.lib.available", "false")
+        .config("spark.hadoop.fs.file.impl", "org.apache.hadoop.fs.RawLocalFileSystem")
+        .config("spark.hadoop.fs.AbstractFileSystem.file.impl", "org.apache.hadoop.fs.local.LocalFs")
+        .config("spark.hadoop.fs.file.impl.disable.cache", "true")
     )
 
-    kafka_packages = spark_config.kafka_packages or "org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1"
+    kafka_packages = _resolve_kafka_packages(
+        spark_config.kafka_packages or "org.apache.spark:spark-sql-kafka-0-10_2.13"
+    )
     if kafka_packages:
         spark = spark.config("spark.jars.packages", kafka_packages)
 
     spark = spark.getOrCreate()
+    stream_started_epoch_ms = int(time.time() * 1000)
+    prime_process_metrics_probe()
 
 
     # ── stream ──────────────────────────────────────────
-    raw_schema = build_raw_schema(full_feature_columns)
+    raw_schema = build_raw_schema(model_feature_columns)
     parsed_stream = build_parsed_stream(
         spark,
         bootstrap_servers=bootstrap_servers,
@@ -395,10 +674,11 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
         raw_schema=raw_schema,
     )
     parsed_stream = filter_input_run_tag(parsed_stream, options.input_run_tag)
+    parsed_stream, control_stream = split_control_and_data_records(parsed_stream)
 
     prepared_stream = prepare_feature_columns(
         parsed_stream,
-        full_feature_columns=full_feature_columns,
+        full_feature_columns=model_feature_columns,
         active_feature_columns=active_feature_columns,
         fill_values=fill_values,
     )
@@ -408,11 +688,34 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
         drop_late_events=bool(options.drop_late_events),
     )
 
-    score_udf = make_score_udf(str(model_path), full_feature_columns, fill_values)
+    score_udf = make_score_udf(str(model_path), model_feature_columns, fill_values)
+    prewarm_elapsed_ms: float | None = None
+    try:
+        prewarm_elapsed_ms = prewarm_score_udf_model(
+            spark,
+            score_udf=score_udf,
+            feature_columns=model_feature_columns,
+            fill_values=fill_values,
+        )
+        _log_runtime_event(
+            "model_prewarm_done",
+            run_tag=options.run_tag,
+            model=model_name,
+            feature_set=options.feature_set,
+            prewarm_elapsed_ms=f"{prewarm_elapsed_ms:.3f}",
+        )
+    except Exception as exc:
+        _log_runtime_event(
+            "model_prewarm_failed",
+            run_tag=options.run_tag,
+            model=model_name,
+            feature_set=options.feature_set,
+            error=type(exc).__name__,
+        )
     scored_stream = add_prediction_columns(
         prepared_stream,
         score_udf=score_udf,
-        feature_columns=full_feature_columns,
+        feature_columns=model_feature_columns,
         threshold=threshold,
         model_name=model_name,
         feature_set=options.feature_set,
@@ -420,7 +723,10 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
     )
 
     scored_stream = add_source_latency_columns(scored_stream, source_mode=latency_config.source_to_ingest_mode)
-    scored_stream = add_processing_latency_columns(scored_stream)
+    scored_stream = add_processing_latency_columns(
+        scored_stream,
+        stream_started_epoch_ms=stream_started_epoch_ms,
+    )
     prediction_payload = build_prediction_payload(scored_stream)
 
 
@@ -432,10 +738,11 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
     kafka_checkpoint = checkpoint_root / run_suffix / "kafka"
     parquet_checkpoint = checkpoint_root / run_suffix / "parquet"
     metrics_checkpoint = checkpoint_root / run_suffix / "metrics"
+    sentinel_checkpoint = checkpoint_root / run_suffix / "sentinel"
     artifact_output = prediction_artifact_dir / run_suffix
 
     if options.reset_checkpoint:
-        for path in (kafka_checkpoint, parquet_checkpoint, metrics_checkpoint, artifact_output):
+        for path in (kafka_checkpoint, parquet_checkpoint, metrics_checkpoint, sentinel_checkpoint, artifact_output):
             if path.exists():
                 shutil.rmtree(path)
 
@@ -510,18 +817,23 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
             fp = float(stat["fp"] or 0.0)
             fn = float(stat["fn"] or 0.0)
             labeled_rows = float(stat["labeled_rows"] or 0.0)
-            precision = safe_ratio(tp, tp + fp)
-            recall = safe_ratio(tp, tp + fn)
-            f1 = safe_ratio(2.0 * precision * recall, precision + recall)
-            fpr = safe_ratio(fp, fp + tn)
-            fnr = safe_ratio(fn, fn + tp)
+            precision = safe_ratio_or_none(tp, tp + fp)
+            recall = safe_ratio_or_none(tp, tp + fn)
+            f1 = _compute_f1_score(precision, recall)
+            fpr = safe_ratio_or_none(fp, fp + tn)
+            fnr = safe_ratio_or_none(fn, fn + tp)
+            batch_wall_seconds = max(time.perf_counter() - batch_start, 1e-9)
+            batch_wall_ms = batch_wall_seconds * 1000.0
+            source_p50_ms = float(stat["source_p50_ms"] or 0.0)
+            source_p95_ms = float(stat["source_p95_ms"] or 0.0)
+            source_p99_ms = float(stat["source_p99_ms"] or 0.0)
 
             payload = {
                 "ts_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "ts_epoch_ms": metric_ts_epoch_ms,
                 "batch_id": int(batch_id),
                 "run_tag": options.run_tag,
-                "load_profile": options.load_profile,
+                "load_profile": resolved_load_profile,
                 "model_name": model_name,
                 "feature_set": options.feature_set,
                 "metric_sources": {
@@ -529,6 +841,32 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
                     "kafka_lag": "kafka_topic_high_watermark_minus_batch_offsets",
                     "system_utilization": "driver_process_and_spark_executor_memory",
                 },
+                "metric_warnings": sorted(
+                    {
+                        str(warning).strip()
+                        for warning in [
+                            *((proc_metrics.get("metric_warnings") or [])),
+                            *((executor_metrics.get("metric_warnings") or [])),
+                            *((kafka_lag.get("metric_warnings") or [])),
+                            *(
+                                ["load_profile_missing_fallback_used"]
+                                if not str(options.load_profile).strip()
+                                else []
+                            ),
+                            *(
+                                ["latency_excludes_pre_stream_queue_dwell"]
+                                if options.available_now
+                                else []
+                            ),
+                            *(
+                                ["model_score_udf_prewarm_failed"]
+                                if prewarm_elapsed_ms is None
+                                else []
+                            ),
+                        ]
+                        if str(warning).strip()
+                    }
+                ),
                 "system_knobs": {
                     "max_offsets_per_trigger": max_offsets_per_trigger,
                     "shuffle_partitions": shuffle_partitions,
@@ -539,19 +877,31 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
                 "rows": int(row_count),
                 "latency_ms": {
                     "source_to_ingest": {
-                        "p50": float(stat["source_p50_ms"] or 0.0),
-                        "p95": float(stat["source_p95_ms"] or 0.0),
-                        "p99": float(stat["source_p99_ms"] or 0.0),
+                        "p50": source_p50_ms,
+                        "p95": source_p95_ms,
+                        "p99": source_p99_ms,
                     },
                     "processing": {
-                        "p50": float(stat["proc_p50_ms"] or 0.0),
-                        "p95": float(stat["proc_p95_ms"] or 0.0),
-                        "p99": float(stat["proc_p99_ms"] or 0.0),
+                        "semantic": "legacy_alias_for_batch_wall_time",
+                        "p50": batch_wall_ms,
+                        "p95": batch_wall_ms,
+                        "p99": batch_wall_ms,
+                    },
+                    "ingest_to_emit": {
+                        "p50": batch_wall_ms,
+                        "p95": batch_wall_ms,
+                        "p99": batch_wall_ms,
                     },
                     "end_to_end": {
-                        "p50": float(stat["e2e_p50_ms"] or 0.0),
-                        "p95": float(stat["e2e_p95_ms"] or 0.0),
-                        "p99": float(stat["e2e_p99_ms"] or 0.0),
+                        "semantic": "legacy_alias_for_source_to_ingest_plus_batch_wall_time",
+                        "p50": source_p50_ms + batch_wall_ms,
+                        "p95": source_p95_ms + batch_wall_ms,
+                        "p99": source_p99_ms + batch_wall_ms,
+                    },
+                    "source_to_emit": {
+                        "p50": source_p50_ms + batch_wall_ms,
+                        "p95": source_p95_ms + batch_wall_ms,
+                        "p99": source_p99_ms + batch_wall_ms,
                     },
                     "event_lateness": {
                         "p95": float(stat["event_lateness_p95_ms"] or 0.0),
@@ -582,18 +932,17 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
                     "tn": int(tn),
                     "fp": int(fp),
                     "fn": int(fn),
-                    "precision": float(precision),
-                    "recall": float(recall),
-                    "f1": float(f1),
-                    "fpr": float(fpr),
-                    "fnr": float(fnr),
+                    "precision": float(precision) if precision is not None else None,
+                    "recall": float(recall) if recall is not None else None,
+                    "f1": float(f1) if f1 is not None else None,
+                    "fpr": float(fpr) if fpr is not None else None,
+                    "fnr": float(fnr) if fnr is not None else None,
                 },
                 "avg_prediction_score": float(stat["avg_prediction_score"] or 0.0),
                 "attack_ratio": float(stat["attack_ratio"] or 0.0),
             }
 
-            batch_wall_seconds = max(time.perf_counter() - batch_start, 1e-9)
-            payload["batch_wall_ms"] = batch_wall_seconds * 1000.0
+            payload["batch_wall_ms"] = batch_wall_ms
             payload["rows_per_sec"] = float(payload["rows"]) / batch_wall_seconds
 
             publish_ok = _publish_metrics_payload(
@@ -607,8 +956,8 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
                 batch_id=batch_id,
                 rows=payload["rows"],
                 rows_per_sec=f"{payload['rows_per_sec']:.2f}",
-                fpr=f"{fpr:.6f}",
-                fnr=f"{fnr:.6f}",
+                fpr=(f"{fpr:.6f}" if fpr is not None else "n/a"),
+                fnr=(f"{fnr:.6f}" if fnr is not None else "n/a"),
                 publish_ok=publish_ok,
             )
         finally:
@@ -621,6 +970,30 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
         .queryName(f"ids_metrics_{model_name}")
     )
 
+    sentinel_seen = threading.Event()
+
+    def mark_input_sentinel(batch_df, batch_id: int) -> None:
+        row_count = int(batch_df.count())
+        if row_count <= 0:
+            return
+        sentinel_seen.set()
+        _log_runtime_event(
+            "input_sentinel_seen",
+            run_tag=options.run_tag,
+            batch_id=batch_id,
+            rows=row_count,
+        )
+
+    sentinel_writer = None
+    if options.stop_on_input_sentinel:
+        sentinel_writer = (
+            control_stream.filter(control_stream.control_type == "input_sentinel")
+            .writeStream
+            .foreachBatch(mark_input_sentinel)
+            .option("checkpointLocation", str(sentinel_checkpoint))
+            .queryName(f"ids_input_sentinel_{model_name}")
+        )
+
 
     # ── stop ────────────────────────────────────────────
     kafka_query = apply_trigger(kafka_writer,
@@ -632,13 +1005,38 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
     metrics_query = apply_trigger(metrics_writer,
                                   available_now=options.available_now,
                                   trigger_interval=trigger_interval).start()
+    sentinel_query = None
+    if sentinel_writer is not None:
+        sentinel_query = apply_trigger(
+            sentinel_writer,
+            available_now=options.available_now,
+            trigger_interval=trigger_interval,
+        ).start()
+    active_queries = [kafka_query, parquet_query, metrics_query]
+    if sentinel_query is not None:
+        active_queries.append(sentinel_query)
+    stop_requested = threading.Event()
+
+    def _handle_stop_signal(signum, _frame) -> None:
+        stop_requested.set()
+        _log_runtime_event(
+            "shutdown_signal_received",
+            run_tag=options.run_tag,
+            signal=signum,
+        )
+
+    for handled_signal in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(handled_signal, _handle_stop_signal)
+        except Exception:
+            continue
 
     print(
         f"Started structured streaming model={model_name} input_topic={input_topic} output_topic={output_topic} "
         f"metrics_topic={metrics_topic} feature_set={options.feature_set} run_tag={options.run_tag} "
         f"max_offsets={max_offsets_per_trigger} shuffle_partitions={shuffle_partitions} trigger={trigger_interval} "
         f"watermark_delay_sec={watermark_delay_sec} drop_late_events={bool(options.drop_late_events)} "
-        f"available_now={options.available_now}",
+        f"available_now={options.available_now} stop_on_input_sentinel={bool(options.stop_on_input_sentinel)}",
         flush=True,
     )
     _log_runtime_event(
@@ -653,19 +1051,126 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
         watermark_delay_sec=watermark_delay_sec,
         available_now=options.available_now,
         run_seconds=options.run_seconds,
+        stop_on_input_sentinel=options.stop_on_input_sentinel,
     )
 
     if options.available_now:
-        kafka_query.awaitTermination()
-        parquet_query.awaitTermination()
-        metrics_query.awaitTermination()
+        for query in active_queries:
+            while query.isActive and not stop_requested.is_set() and not _shutdown_request_seen(options.run_tag):
+                query.awaitTermination(1)
+        if stop_requested.is_set() or _shutdown_request_seen(options.run_tag):
+            for query, name in [
+                (sentinel_query, "input_sentinel"),
+                (kafka_query, "predictions_kafka"),
+                (parquet_query, "predictions_parquet"),
+                (metrics_query, "metrics"),
+            ]:
+                if query is not None:
+                    _stop_query_gracefully(query, name=name)
+    elif options.stop_on_input_sentinel:
+        deadline = (time.time() + options.run_seconds) if options.run_seconds and options.run_seconds > 0 else None
+        stop_reason = "queries_inactive"
+        while True:
+            if stop_requested.is_set():
+                stop_reason = "signal"
+                break
+            if _shutdown_request_seen(options.run_tag):
+                stop_reason = "external_request"
+                break
+            if sentinel_seen.is_set():
+                stop_reason = "input_sentinel"
+                break
+            if deadline is not None and time.time() >= deadline:
+                stop_reason = "watchdog_timeout"
+                break
+            if not any(query.isActive for query in (kafka_query, parquet_query, metrics_query)):
+                stop_reason = "queries_inactive"
+                break
+            time.sleep(0.5)
+        _log_runtime_event(
+            "stop_condition_met",
+            run_tag=options.run_tag,
+            reason=stop_reason,
+            sentinel_seen=sentinel_seen.is_set(),
+        )
+        if stop_reason == "watchdog_timeout":
+            print(
+                f"[warn] watchdog timeout before input sentinel run_tag={options.run_tag}",
+                file=sys.stderr,
+                flush=True,
+            )
+        data_queries = [
+            (kafka_query, "predictions_kafka"),
+            (parquet_query, "predictions_parquet"),
+            (metrics_query, "metrics"),
+        ]
+        managed_queries = list(data_queries)
+        if sentinel_query is not None:
+            managed_queries.insert(0, (sentinel_query, "input_sentinel"))
+        if stop_reason == "input_sentinel":
+            _shutdown_after_input_sentinel(
+                data_queries=data_queries,
+                sentinel_query=sentinel_query,
+                run_tag=options.run_tag,
+            )
+        else:
+            if sentinel_query is not None:
+                _stop_query_gracefully(sentinel_query, name="input_sentinel")
+        for query, name in managed_queries:
+            if query is not None and query.isActive:
+                _stop_query_with_soft_wait(
+                    query,
+                    name=name,
+                    prewait_sec=(
+                        float(_INPUT_SENTINEL_GRACEFUL_SHUTDOWN_TIMEOUT_SEC)
+                        if stop_reason == "input_sentinel"
+                        else 15.0
+                    ),
+                )
     elif options.run_seconds and options.run_seconds > 0:
-        time.sleep(options.run_seconds)
+        deadline = time.time() + options.run_seconds
+        stop_reason = "watchdog_timeout"
+        while time.time() < deadline:
+            if stop_requested.is_set():
+                stop_reason = "signal"
+                break
+            if _shutdown_request_seen(options.run_tag):
+                stop_reason = "external_request"
+                break
+            time.sleep(0.5)
+        interrupted = stop_reason != "watchdog_timeout"
+        if interrupted:
+            _log_runtime_event(
+                "stop_condition_met",
+                run_tag=options.run_tag,
+                reason=stop_reason,
+                sentinel_seen=sentinel_seen.is_set(),
+            )
         _stop_query_gracefully(kafka_query, name="predictions_kafka")
         _stop_query_gracefully(parquet_query, name="predictions_parquet")
         _stop_query_gracefully(metrics_query, name="metrics")
     else:
-        spark.streams.awaitAnyTermination()
+        while not stop_requested.is_set():
+            if _shutdown_request_seen(options.run_tag):
+                break
+            if not any(query.isActive for query in active_queries):
+                break
+            spark.streams.awaitAnyTermination(1)
+        if stop_requested.is_set() or _shutdown_request_seen(options.run_tag):
+            _log_runtime_event(
+                "stop_condition_met",
+                run_tag=options.run_tag,
+                reason=("signal" if stop_requested.is_set() else "external_request"),
+                sentinel_seen=sentinel_seen.is_set(),
+            )
+            for query, name in [
+                (sentinel_query, "input_sentinel"),
+                (kafka_query, "predictions_kafka"),
+                (parquet_query, "predictions_parquet"),
+                (metrics_query, "metrics"),
+            ]:
+                if query is not None:
+                    _stop_query_gracefully(query, name=name)
 
     _publish_run_completion_metric(
         bootstrap_servers=bootstrap_servers,
@@ -673,7 +1178,7 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
         run_tag=options.run_tag,
         model_name=model_name,
         feature_set=options.feature_set,
-        load_profile=options.load_profile,
+        load_profile=resolved_load_profile,
     )
     _log_runtime_event(
         "job_stop",
@@ -681,6 +1186,7 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
         model=model_name,
         feature_set=options.feature_set,
     )
+    clear_shutdown_request(options.run_tag)
 
     spark.stop()
     return 0

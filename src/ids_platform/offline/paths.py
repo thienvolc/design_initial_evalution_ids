@@ -96,6 +96,23 @@ class Paths:
             log_dir=root / "logs" / "offline",
         )
 
+    @property
+    def feature_set_name(self) -> str:
+        return "full" if self.feature_registry_path.name == "feature_registry_full.yaml" else "reduced"
+
+    @property
+    def feature_set_suffix(self) -> str:
+        return "" if self.feature_set_name == "full" else "_reduced"
+
+    def suffixed_name(self, filename: str) -> str:
+        if not self.feature_set_suffix:
+            return filename
+
+        path = Path(filename)
+        suffix = "".join(path.suffixes)
+        stem = path.name[: -len(suffix)] if suffix else path.name
+        return f"{stem}{self.feature_set_suffix}{suffix}"
+
     def ensure_dirs(self) -> None:
         for d in (
             self.silver_path.parent,

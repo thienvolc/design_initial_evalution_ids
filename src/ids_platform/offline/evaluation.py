@@ -47,6 +47,7 @@ def _append_benchmark(
     bench_path: Path, *, model_name: str, n_features: int,
     n_events: int, metrics: dict[str, float],
     latency_ms: float, throughput: float,
+    feature_set_label: str,
 ) -> None:
     now = datetime.now(timezone.utc)
     row = {
@@ -54,7 +55,7 @@ def _append_benchmark(
         "run_ts": now.isoformat(timespec="seconds"),
         "pipeline": "offline_binary",
         "model_name": model_name,
-        "feature_set": f"n={n_features}",
+        "feature_set": feature_set_label,
         "n_events": n_events,
         **{k: f"{v:.6f}" for k, v in metrics.items()},
         "predict_latency_ms": f"{latency_ms:.1f}",
@@ -126,6 +127,7 @@ def _save_per_attack_recall(
     labels_test: Optional[Series],
     threshold: float,
     evaluation_dir: Path,
+    filename_suffix: str,
     log,
 ) -> list[dict]:
     if labels_test is None:
@@ -149,7 +151,7 @@ def _save_per_attack_recall(
 
     if per_attack_rows:
         pd.DataFrame(per_attack_rows).to_csv(
-            evaluation_dir / f"test_per_attack_recall_{model_name}.csv",
+            evaluation_dir / f"test_per_attack_recall_{model_name}{filename_suffix}.csv",
             index=False,
         )
 
@@ -162,6 +164,7 @@ def _save_feature_importance(
     feature_names: list[str],
     model_name: str,
     evaluation_dir: Path,
+    filename_suffix: str,
     log,
 ) -> None:
     inner_model = model.named_steps.get("model")
@@ -178,7 +181,7 @@ def _save_feature_importance(
         for feature_name, importance in feature_importance_pairs
     ]
     write_json(
-        evaluation_dir / f"feature_importance_{model_name}.json",
+        evaluation_dir / f"feature_importance_{model_name}{filename_suffix}.json",
         {"importances": importance_rows},
     )
     log.info(
@@ -261,6 +264,7 @@ def _evaluate_one_model(
         labels_test=labels_test,
         threshold=opt_thr,
         evaluation_dir=paths.evaluation_dir,
+        filename_suffix=paths.feature_set_suffix,
         log=log,
     )
 
@@ -287,7 +291,7 @@ def _evaluate_one_model(
 
     # per-model test_metrics JSON
     write_json(
-        paths.evaluation_dir / f"test_metrics_{model_name}.json",
+        paths.evaluation_dir / f"test_metrics_{model_name}{paths.feature_set_suffix}.json",
         {
             "dataset": "test", "model": model_name,
             "n": len(y_test), "opt_threshold": opt_thr,
@@ -311,7 +315,7 @@ def _evaluate_one_model(
     if labels_test is not None:
         pred_df["label"] = labels_test.values
     pred_df.to_parquet(
-        paths.evaluation_dir / f"predictions_{model_name}.parquet", index=False,
+        paths.evaluation_dir / f"predictions_{model_name}{paths.feature_set_suffix}.parquet", index=False,
     )
 
     # confusion matrix (saved per model)
@@ -319,7 +323,7 @@ def _evaluate_one_model(
         cm, index=["actual_benign", "actual_attack"],
         columns=["pred_benign", "pred_attack"],
     )
-    cm_df.to_csv(paths.evaluation_dir / f"confusion_matrix_{model_name}.csv")
+    cm_df.to_csv(paths.evaluation_dir / f"confusion_matrix_{model_name}{paths.feature_set_suffix}.csv")
 
     # feature importance
     _save_feature_importance(
@@ -327,18 +331,20 @@ def _evaluate_one_model(
         feature_names=features,
         model_name=model_name,
         evaluation_dir=paths.evaluation_dir,
+        filename_suffix=paths.feature_set_suffix,
         log=log,
     )
 
     # benchmark log
     _append_benchmark(
-        paths.evaluation_dir / "benchmark_runs.csv",
+        paths.evaluation_dir / paths.suffixed_name("benchmark_runs.csv"),
         model_name=model_name,
         n_features=len(features),
         n_events=len(y_test),
         metrics=metrics,
         latency_ms=latency_ms,
         throughput=throughput,
+        feature_set_label=f"{paths.feature_set_suffix.lstrip('_') or 'full'}:n={len(features)}",
     )
 
     log.info(
@@ -365,7 +371,7 @@ def _load_model_operating_points(paths: Paths, model_name: str, model_meta: dict
     Fallback to best_model.json only for the selected best model to keep
     compatibility with older artifacts.
     """
-    op_path = paths.models_dir / f"operating_points_{model_name}.json"
+    op_path = paths.models_dir / f"operating_points_{model_name}{paths.feature_set_suffix}.json"
     if op_path.exists():
         payload = load_json(op_path)
         operating_points = payload.get("operating_points", {})
@@ -389,26 +395,26 @@ def run(paths: Paths) -> None:
 
     for dep, desc in [
         (paths.test_path, "test split"),
-        (paths.preprocessing_dir / "feature_manifest.json", "feature manifest"),
-        (paths.models_dir / "best_model.json", "best model meta"),
+        (paths.preprocessing_dir / paths.suffixed_name("feature_manifest.json"), "feature manifest"),
+        (paths.models_dir / paths.suffixed_name("best_model.json"), "best model meta"),
     ]:
         if not dep.exists():
             raise FileNotFoundError(f"Missing {desc}: {dep}")
 
-    manifest = load_json(paths.preprocessing_dir / "feature_manifest.json")
-    model_meta = load_json(paths.models_dir / "best_model.json")
+    manifest = load_json(paths.preprocessing_dir / paths.suffixed_name("feature_manifest.json"))
+    model_meta = load_json(paths.models_dir / paths.suffixed_name("best_model.json"))
     features = list(manifest["feature_columns"])
     best_name = str(model_meta["best_model"])
     fpr_budget = float(model_meta.get("fpr_budget", 0.05))
 
     # ── discover all trained models ──
-    valid_metrics_path = paths.models_dir / "valid_metrics.csv"
+    valid_metrics_path = paths.models_dir / paths.suffixed_name("valid_metrics.csv")
     if valid_metrics_path.exists():
         valid_metrics_df = pd.read_csv(valid_metrics_path)
         model_entries = []
         for _, row in valid_metrics_df.iterrows():
             name = str(row["model"])
-            model_path = paths.models_dir / f"{name}.joblib"
+            model_path = paths.models_dir / paths.suffixed_name(f"{name}.joblib")
             if model_path.exists():
                 model_entries.append({
                     "name": name,
@@ -416,7 +422,7 @@ def run(paths: Paths) -> None:
                     "opt_threshold": float(row.get("opt_threshold", 0.5)),
                     "fpr_budget": fpr_budget,
                 })
-        log.info("  discovered %d models from valid_metrics.csv", len(model_entries))
+        log.info("  discovered %d models from %s", len(model_entries), valid_metrics_path.name)
     else:
         # fallback: only best model
         model_entries = [{
@@ -474,7 +480,7 @@ def run(paths: Paths) -> None:
     summary_df = pd.DataFrame(summary_rows).sort_values(
         ["recall", "fpr"], ascending=[False, True],
     )
-    summary_df.to_csv(paths.evaluation_dir / "test_summary.csv", index=False)
+    summary_df.to_csv(paths.evaluation_dir / paths.suffixed_name("test_summary.csv"), index=False)
 
     log.info("\n  ── TEST SUMMARY ──")
     for _, r in summary_df.iterrows():
