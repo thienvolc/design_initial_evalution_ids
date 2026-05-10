@@ -389,7 +389,7 @@ def _load_model_operating_points(paths: Paths, model_name: str, model_meta: dict
 # ── public API ──────────────────────────────────────────────────────────
 
 
-def run(paths: Paths) -> None:
+def run(paths: Paths, *, selected_models: list[str] | None = None) -> None:
     log = get_logger("phase04", paths.log_dir / "phase04_evaluate.log")
     paths.ensure_dirs()
 
@@ -407,6 +407,8 @@ def run(paths: Paths) -> None:
     best_name = str(model_meta["best_model"])
     fpr_budget = float(model_meta.get("fpr_budget", 0.05))
 
+    requested_models = {str(name).strip() for name in (selected_models or []) if str(name).strip()}
+
     # ── discover all trained models ──
     valid_metrics_path = paths.models_dir / paths.suffixed_name("valid_metrics.csv")
     if valid_metrics_path.exists():
@@ -414,6 +416,8 @@ def run(paths: Paths) -> None:
         model_entries = []
         for _, row in valid_metrics_df.iterrows():
             name = str(row["model"])
+            if requested_models and name not in requested_models:
+                continue
             model_path = paths.models_dir / paths.suffixed_name(f"{name}.joblib")
             if model_path.exists():
                 model_entries.append({
@@ -425,12 +429,23 @@ def run(paths: Paths) -> None:
         log.info("  discovered %d models from %s", len(model_entries), valid_metrics_path.name)
     else:
         # fallback: only best model
-        model_entries = [{
-            "name": best_name,
-            "path": Path(model_meta["model_path"]),
-            "opt_threshold": float(model_meta.get("opt_threshold", 0.5)),
-            "fpr_budget": fpr_budget,
-        }]
+        model_entries = []
+        if not requested_models or best_name in requested_models:
+            model_entries.append({
+                "name": best_name,
+                "path": Path(model_meta["model_path"]),
+                "opt_threshold": float(model_meta.get("opt_threshold", 0.5)),
+                "fpr_budget": fpr_budget,
+            })
+
+    if requested_models and not model_entries:
+        raise FileNotFoundError(
+            f"No trained artifacts found for selected model(s) {sorted(requested_models)} in {paths.models_dir}"
+        )
+    if not model_entries:
+        raise FileNotFoundError(
+            f"No trained model artifacts discovered in {paths.models_dir}. Expected per-model *.joblib files."
+        )
 
     # ── load test data once ──
     test_df = pd.read_parquet(paths.test_path)
@@ -447,6 +462,8 @@ def run(paths: Paths) -> None:
     log.info("START  n_test=%d  benign=%d (%.1f%%)  attack=%d (%.1f%%)  models=%d",
              len(y_test), n_benign, 100 * n_benign / len(y_test),
              n_attack, 100 * n_attack / len(y_test), len(model_entries))
+    if requested_models:
+        log.info("  selected models: %s", sorted(requested_models))
 
     if labels_test is not None:
         attack_type_counts = labels_test[y_test == 1].value_counts()

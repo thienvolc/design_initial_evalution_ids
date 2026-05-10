@@ -10,7 +10,7 @@ from confluent_kafka import Producer
 
 from ids_platform.common.config import load_yaml_mapping
 from ids_platform.common.paths import resolve_project_path
-from ids_platform.streaming.config import resolve_kafka_bootstrap_servers
+from ids_platform.streaming.core.config import resolve_kafka_bootstrap_servers
 from ids_platform.streaming.replay.config import parse_rate_schedule
 from ids_platform.streaming.replay.service import (
     apply_lateness,
@@ -26,7 +26,7 @@ from ids_platform.streaming.replay.service import (
 
 @dataclass(frozen=True)
 class ReplayJobOptions:
-    config_path: str = "configs/streaming/online.yaml"
+    config_path: str = "configs/streaming/streaming.yaml"
     bootstrap_servers: str | None = None
     topic: str | None = None
     run_tag: str = ""

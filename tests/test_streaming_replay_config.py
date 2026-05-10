@@ -43,7 +43,7 @@ class ReplayConfigTests(unittest.TestCase):
     def test_build_replay_command_uses_rate_schedule_over_rows_per_sec(self) -> None:
         command = build_replay_command(
             python_exe="python",
-            config="configs/streaming/online.yaml",
+            config="configs/streaming/streaming.yaml",
             run_tag="run-1",
             max_rows=1000,
             batch_size=200,
@@ -54,12 +54,12 @@ class ReplayConfigTests(unittest.TestCase):
         )
         self.assertIn("--rate-schedule", command)
         self.assertNotIn("--rows-per-sec", command)
-        self.assertEqual(command[0:2], ["python", "scripts/streaming/replay_parquet_to_kafka.py"])
+        self.assertEqual(command[0:2], ["python", "scripts/streaming/official/replay_parquet_to_kafka.py"])
 
     def test_build_replay_command_includes_force_sort_flag_when_requested(self) -> None:
         command = build_replay_command(
             python_exe="python",
-            config="configs/streaming/online.yaml",
+            config="configs/streaming/streaming.yaml",
             run_tag="run-1",
             max_rows=1000,
             batch_size=200,

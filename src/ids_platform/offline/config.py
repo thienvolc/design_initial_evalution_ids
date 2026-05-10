@@ -94,6 +94,7 @@ class SamplingConfig:
 @dataclass(frozen=True)
 class MemoryConfig:
     max_train_rows: int | None = None   # None = load all
+    max_train_feature_cells: int | None = None
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,32 @@ class PreprocessingConfig:
     feature_selection: FeatureSelectionConfig = FeatureSelectionConfig()
     models: list[ModelToggle] = field(default_factory=list)
 
+    def with_selected_models(self, selected_models: list[str] | tuple[str, ...] | None) -> PreprocessingConfig:
+        if not selected_models:
+            return self
+
+        requested = {str(name).strip() for name in selected_models if str(name).strip()}
+        if not requested:
+            return self
+
+        available = {toggle.name for toggle in self.models}
+        unknown = sorted(requested - available)
+        if unknown:
+            raise ValueError(f"Unknown model(s): {unknown} (available: {sorted(available)})")
+
+        filtered_models = [
+            ModelToggle(name=toggle.name, enabled=(toggle.enabled and toggle.name in requested), params=toggle.params)
+            for toggle in self.models
+        ]
+        return PreprocessingConfig(
+            impute_strategy=self.impute_strategy,
+            scale_enabled=self.scale_enabled,
+            sampling=self.sampling,
+            memory=self.memory,
+            feature_selection=self.feature_selection,
+            models=filtered_models,
+        )
+
     @classmethod
     def from_yaml(cls, path: Path) -> PreprocessingConfig:
         """Build the preprocessing config from the YAML sections on disk."""
@@ -148,6 +175,7 @@ class PreprocessingConfig:
             ),
             memory=MemoryConfig(
                 max_train_rows=memory_config.get("max_train_rows"),
+                max_train_feature_cells=memory_config.get("max_train_feature_cells"),
             ),
             feature_selection=FeatureSelectionConfig(
                 enabled=bool(feature_selection_config.get("enabled", False)),

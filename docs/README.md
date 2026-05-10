@@ -14,11 +14,17 @@ Use these files as the canonical documentation set for the current project state
   - where to look for each major responsibility in the codebase
 - [evaluation_methodology.md](evaluation_methodology.md)
   - official SUT vs evaluation-system boundary and artifact contract
+- [adr/ADR-0001-layer-c-stabilization.md](adr/ADR-0001-layer-c-stabilization.md)
+  - canonical rationale for Layer C hybrid host-orchestrated and package-split behavior
 
 ## Repo-Level Context
 
-- [../PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md)
-  - persistent project context for future AI and engineer sessions
+- [../context/project_context.md](../context/project_context.md)
+  - canonical minimal project context for future AI and engineer sessions
+- [../context/phase_list.md](../context/phase_list.md)
+  - ordered phase index for project evolution
+- [../context/canonical_legacy_map.md](../context/canonical_legacy_map.md)
+  - short map of canonical, legacy, and compatibility surfaces
 - [../scripts/streaming/README.md](../scripts/streaming/README.md)
   - operator-focused usage for streaming entrypoints
 

@@ -14,13 +14,13 @@ from pathlib import Path
 from typing import Protocol, cast
 
 from ids_platform.common.paths import resolve_project_path
-from ids_platform.streaming.artifacts import (
+from ids_platform.streaming.core.artifacts import (
     load_thresholds,
     resolve_feature_set_path,
     resolve_model_artifact_path,
 )
-from ids_platform.streaming.config import load_structured_streaming_app_config
-from ids_platform.streaming.metrics.system import (
+from ids_platform.streaming.core.config import load_structured_streaming_app_config
+from ids_platform.streaming.observability.system import (
     prime_process_metrics_probe,
     probe_executor_memory_utilization,
     probe_kafka_lag,
@@ -41,6 +41,7 @@ from ids_platform.streaming.runtime.pipeline import (
 )
 from ids_platform.streaming.runtime.query import apply_trigger, safe_tag
 from ids_platform.streaming.runtime.scoring import (
+    add_passthrough_prediction_columns,
     add_prediction_columns,
     make_score_udf,
     prewarm_score_udf_model,
@@ -115,9 +116,10 @@ def _resolve_kafka_packages(configured_packages: str) -> str:
 
 @dataclass(frozen=True)
 class StructuredStreamingJobOptions:
-    config_path: str = "configs/streaming/online.yaml"
+    config_path: str = "configs/streaming/streaming.yaml"
     model_name: str = "logistic_regression"
     feature_set: str = "full"
+    baseline_mode: str = ""
     run_tag: str = ""
     input_run_tag: str = ""
     load_profile: str = ""
@@ -160,6 +162,7 @@ def _collect_batch_statistics(batch_df):
 
     return batch_df.agg(
         F.count("*").alias("rows"),
+        F.sum(F.when(F.col("prediction_label").isNotNull(), F.lit(1)).otherwise(F.lit(0))).alias("scored_rows"),
         F.expr("percentile_approx(source_to_ingest_ms, 0.5)").alias("source_p50_ms"),
         F.expr("percentile_approx(source_to_ingest_ms, 0.95)").alias("source_p95_ms"),
         F.expr("percentile_approx(source_to_ingest_ms, 0.99)").alias("source_p99_ms"),
@@ -553,17 +556,22 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
     model_configs = app_config.models
 
     model_name = options.model_name.strip()
+    baseline_mode = str(options.baseline_mode or "").strip().lower()
+    if baseline_mode not in {"", "pass_through"}:
+        raise ValueError(f"Unsupported baseline_mode={baseline_mode}")
+    is_pass_through = baseline_mode == "pass_through"
     model_entry = None
     for item in model_configs:
         if item.name == model_name and item.enabled:
             model_entry = item
             break
 
-    if model_entry is None:
+    if model_entry is None and not is_pass_through:
         raise ValueError(f"Model {model_name} is not enabled in config")
+    reported_model_name = "pass_through" if is_pass_through else model_name
     resolved_load_profile = resolve_load_profile(
         options.load_profile,
-        model_name=model_name,
+        model_name=reported_model_name,
         feature_set=options.feature_set,
     )
     clear_shutdown_request(options.run_tag)
@@ -614,16 +622,21 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
 
     # ── impute ──────────────────────────────────────────
     fill_values = {str(key): float(value) for key, value in (manifest.get("imputer_fill_values") or {}).items()}
-    thresholds = load_thresholds(valid_metrics_csv)
-
-    threshold = model_entry.threshold
-    if threshold is None:
-        threshold = thresholds.get(model_name, 0.5)
-    threshold = float(threshold)
+    threshold: float | None = None
+    if not is_pass_through:
+        thresholds = load_thresholds(valid_metrics_csv)
+        threshold = model_entry.threshold
+        if threshold is None:
+            threshold = thresholds.get(model_name, 0.5)
+        threshold = float(threshold)
 
 
     # ── runtime ─────────────────────────────────────────
-    model_path = resolve_model_artifact_path(model_entry.raw, options.feature_set)
+    model_path = (
+        resolve_model_artifact_path(model_entry.raw, options.feature_set)
+        if not is_pass_through and model_entry is not None
+        else None
+    )
 
     _ensure_kafka_topics_exist(
         bootstrap_servers=bootstrap_servers,
@@ -688,39 +701,53 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
         drop_late_events=bool(options.drop_late_events),
     )
 
-    score_udf = make_score_udf(str(model_path), model_feature_columns, fill_values)
     prewarm_elapsed_ms: float | None = None
-    try:
-        prewarm_elapsed_ms = prewarm_score_udf_model(
-            spark,
+    if is_pass_through:
+        scored_stream = add_passthrough_prediction_columns(
+            prepared_stream,
+            model_name=reported_model_name,
+            feature_set=options.feature_set,
+            run_tag=options.run_tag,
+        )
+        _log_runtime_event(
+            "pass_through_mode_enabled",
+            run_tag=options.run_tag,
+            model=reported_model_name,
+            feature_set=options.feature_set,
+        )
+    else:
+        score_udf = make_score_udf(str(model_path), model_feature_columns, fill_values)
+        try:
+            prewarm_elapsed_ms = prewarm_score_udf_model(
+                spark,
+                score_udf=score_udf,
+                feature_columns=model_feature_columns,
+                fill_values=fill_values,
+            )
+            _log_runtime_event(
+                "model_prewarm_done",
+                run_tag=options.run_tag,
+                model=model_name,
+                feature_set=options.feature_set,
+                prewarm_elapsed_ms=f"{prewarm_elapsed_ms:.3f}",
+            )
+        except Exception as exc:
+            _log_runtime_event(
+                "model_prewarm_failed",
+                run_tag=options.run_tag,
+                model=model_name,
+                feature_set=options.feature_set,
+                error=type(exc).__name__,
+            )
+        scored_stream = add_prediction_columns(
+            prepared_stream,
             score_udf=score_udf,
             feature_columns=model_feature_columns,
-            fill_values=fill_values,
-        )
-        _log_runtime_event(
-            "model_prewarm_done",
-            run_tag=options.run_tag,
-            model=model_name,
+            threshold=float(threshold if threshold is not None else 0.5),
+            model_name=model_name,
             feature_set=options.feature_set,
-            prewarm_elapsed_ms=f"{prewarm_elapsed_ms:.3f}",
-        )
-    except Exception as exc:
-        _log_runtime_event(
-            "model_prewarm_failed",
             run_tag=options.run_tag,
-            model=model_name,
-            feature_set=options.feature_set,
-            error=type(exc).__name__,
         )
-    scored_stream = add_prediction_columns(
-        prepared_stream,
-        score_udf=score_udf,
-        feature_columns=model_feature_columns,
-        threshold=threshold,
-        model_name=model_name,
-        feature_set=options.feature_set,
-        run_tag=options.run_tag,
-    )
 
     scored_stream = add_source_latency_columns(scored_stream, source_mode=latency_config.source_to_ingest_mode)
     scored_stream = add_processing_latency_columns(
@@ -807,6 +834,7 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
             row_count = int(stat["rows"] or 0)
             if row_count == 0:
                 return
+            scored_rows = int(stat["scored_rows"] or 0)
 
             kafka_lag = probe_kafka_lag(bootstrap_servers=bootstrap_servers, topic=input_topic, offsets=offsets)
             proc_metrics = probe_process_metrics()
@@ -817,11 +845,11 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
             fp = float(stat["fp"] or 0.0)
             fn = float(stat["fn"] or 0.0)
             labeled_rows = float(stat["labeled_rows"] or 0.0)
-            precision = safe_ratio_or_none(tp, tp + fp)
-            recall = safe_ratio_or_none(tp, tp + fn)
-            f1 = _compute_f1_score(precision, recall)
-            fpr = safe_ratio_or_none(fp, fp + tn)
-            fnr = safe_ratio_or_none(fn, fn + tp)
+            precision = safe_ratio_or_none(tp, tp + fp) if scored_rows > 0 else None
+            recall = safe_ratio_or_none(tp, tp + fn) if scored_rows > 0 else None
+            f1 = _compute_f1_score(precision, recall) if scored_rows > 0 else None
+            fpr = safe_ratio_or_none(fp, fp + tn) if scored_rows > 0 else None
+            fnr = safe_ratio_or_none(fn, fn + tp) if scored_rows > 0 else None
             batch_wall_seconds = max(time.perf_counter() - batch_start, 1e-9)
             batch_wall_ms = batch_wall_seconds * 1000.0
             source_p50_ms = float(stat["source_p50_ms"] or 0.0)
@@ -834,7 +862,7 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
                 "batch_id": int(batch_id),
                 "run_tag": options.run_tag,
                 "load_profile": resolved_load_profile,
-                "model_name": model_name,
+                "model_name": reported_model_name,
                 "feature_set": options.feature_set,
                 "metric_sources": {
                     "latency_detection": "spark_foreachBatch_aggregation",
@@ -860,9 +888,10 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
                             ),
                             *(
                                 ["model_score_udf_prewarm_failed"]
-                                if prewarm_elapsed_ms is None
+                                if (prewarm_elapsed_ms is None and not is_pass_through)
                                 else []
                             ),
+                            *(["baseline_mode_pass_through"] if is_pass_through else []),
                         ]
                         if str(warning).strip()
                     }
@@ -928,6 +957,7 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
                 },
                 "detection": {
                     "labeled_rows": int(labeled_rows),
+                    "scored_rows": scored_rows,
                     "tp": int(tp),
                     "tn": int(tn),
                     "fp": int(fp),
@@ -938,8 +968,16 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
                     "fpr": float(fpr) if fpr is not None else None,
                     "fnr": float(fnr) if fnr is not None else None,
                 },
-                "avg_prediction_score": float(stat["avg_prediction_score"] or 0.0),
-                "attack_ratio": float(stat["attack_ratio"] or 0.0),
+                "avg_prediction_score": (
+                    float(stat["avg_prediction_score"])
+                    if stat["avg_prediction_score"] is not None
+                    else None
+                ),
+                "attack_ratio": (
+                    float(stat["attack_ratio"])
+                    if stat["attack_ratio"] is not None
+                    else None
+                ),
             }
 
             payload["batch_wall_ms"] = batch_wall_ms
@@ -967,7 +1005,7 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
         scored_stream.writeStream
         .foreachBatch(write_metrics_batch)
         .option("checkpointLocation", str(metrics_checkpoint))
-        .queryName(f"ids_metrics_{model_name}")
+        .queryName(f"ids_metrics_{reported_model_name}")
     )
 
     sentinel_seen = threading.Event()
@@ -991,7 +1029,7 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
             .writeStream
             .foreachBatch(mark_input_sentinel)
             .option("checkpointLocation", str(sentinel_checkpoint))
-            .queryName(f"ids_input_sentinel_{model_name}")
+            .queryName(f"ids_input_sentinel_{reported_model_name}")
         )
 
 
@@ -1032,7 +1070,7 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
             continue
 
     print(
-        f"Started structured streaming model={model_name} input_topic={input_topic} output_topic={output_topic} "
+        f"Started structured streaming model={reported_model_name} input_topic={input_topic} output_topic={output_topic} "
         f"metrics_topic={metrics_topic} feature_set={options.feature_set} run_tag={options.run_tag} "
         f"max_offsets={max_offsets_per_trigger} shuffle_partitions={shuffle_partitions} trigger={trigger_interval} "
         f"watermark_delay_sec={watermark_delay_sec} drop_late_events={bool(options.drop_late_events)} "
@@ -1043,7 +1081,7 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
         "job_start",
         run_tag=options.run_tag,
         input_run_tag=options.input_run_tag,
-        model=model_name,
+        model=reported_model_name,
         feature_set=options.feature_set,
         max_offsets=max_offsets_per_trigger,
         shuffle_partitions=shuffle_partitions,
@@ -1176,14 +1214,14 @@ def run_structured_streaming_job(options: StructuredStreamingJobOptions) -> int:
         bootstrap_servers=bootstrap_servers,
         metrics_topic=metrics_topic,
         run_tag=options.run_tag,
-        model_name=model_name,
+        model_name=reported_model_name,
         feature_set=options.feature_set,
         load_profile=resolved_load_profile,
     )
     _log_runtime_event(
         "job_stop",
         run_tag=options.run_tag,
-        model=model_name,
+        model=reported_model_name,
         feature_set=options.feature_set,
     )
     clear_shutdown_request(options.run_tag)

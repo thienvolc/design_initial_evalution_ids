@@ -62,7 +62,7 @@ matrix runners
   -> collect ids.metrics-derived summaries
   -> write summary CSVs
 
-build_online_report.py
+build_streaming_report.py
   -> read summary CSVs
   -> write report JSON + markdown
 

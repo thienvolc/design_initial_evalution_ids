@@ -133,3 +133,27 @@ def add_prediction_columns(
         ]
     )
     return prepared_df.select(*projected_columns)
+
+
+def add_passthrough_prediction_columns(
+    prepared_df,
+    *,
+    model_name: str,
+    feature_set: str,
+    run_tag: str,
+):
+    from pyspark.sql import functions as F
+
+    projected_columns = [F.col(column_name) for column_name in prepared_df.columns]
+    projected_columns.extend(
+        [
+            F.lit(None).cast("double").alias("prediction_score"),
+            F.lit(None).cast("int").alias("prediction_label"),
+            F.current_timestamp().alias("emit_time"),
+            F.lit(model_name).alias("model_name"),
+            F.lit(feature_set).alias("feature_set"),
+            F.lit(run_tag).alias("run_tag"),
+            F.lit(None).cast("double").alias("threshold_used"),
+        ]
+    )
+    return prepared_df.select(*projected_columns)

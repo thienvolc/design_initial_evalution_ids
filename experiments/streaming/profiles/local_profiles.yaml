@@ -2,13 +2,13 @@ profiles:
   _base_local:
     description: Shared defaults for the current local machine (6 CPU cores, 10 GB RAM)
     args:
-      config: configs/streaming/online_scale_up.yaml
+      config: configs/streaming/streaming.yaml
 
   smoke_gate:
     extends: _base_local
     description: Fast smoke gate for local verification before longer runs
     runtime: docker
-    script: scripts/streaming/run_layer_b_matrix.py
+    script: scripts/streaming/official/run_layer_b_matrix.py
     mode: official
     resource_class: light
     meta:
@@ -27,7 +27,7 @@ profiles:
       batch_size: 2000
       metrics_timeout_sec: 300
       run_prefix: smoke_local
-      summary_csv: artifacts/streaming/scale_up/layer_b_summary_smoke_local.csv
+      summary_csv: artifacts/streaming/evaluation/layer_b_summary_smoke_local.csv
 
   layer_a_local_light:
     extends: layer_a_local_medium
@@ -37,7 +37,7 @@ profiles:
     extends: _base_local
     description: Local Layer A profile set sized for a 6-core / 10 GB machine
     runtime: docker
-    script: scripts/streaming/run_layer_a_matrix.py
+    script: scripts/streaming/official/run_layer_a_matrix.py
     mode: official
     resource_class: medium
     meta:
@@ -54,7 +54,7 @@ profiles:
         max_e2e_p95_ms: 90000
         min_rows_per_sec_avg: 120
     args:
-      model: logistic_regression
+      model: random_forest
       feature_set: full
       trace_input_parquet: data/gold/splits/test.parquet
       trace_order_column: event_time
@@ -80,7 +80,7 @@ profiles:
       batch_size: 2000
       metrics_timeout_sec: 900
       run_prefix: layerA_local_medium
-      summary_csv: artifacts/streaming/scale_up/layer_a_summary_local_medium.csv
+      summary_csv: artifacts/streaming/evaluation/layer_a_summary_local_medium.csv
 
   layer_b_light:
     extends: layer_b_local_medium
@@ -90,7 +90,7 @@ profiles:
     extends: _base_local
     description: Local Layer B comparison with a scaled curated model set
     runtime: docker
-    script: scripts/streaming/run_layer_b_matrix.py
+    script: scripts/streaming/official/run_layer_b_matrix.py
     mode: official
     resource_class: medium
     meta:
@@ -127,7 +127,7 @@ profiles:
       metrics_timeout_sec: 900
       metrics_idle_sec: 20
       run_prefix: layerB_local_medium
-      summary_csv: artifacts/streaming/scale_up/layer_b_summary_local_medium.csv
+      summary_csv: artifacts/streaming/evaluation/layer_b_summary_local_medium.csv
 
   watermark_local_light:
     extends: watermark_local_medium
@@ -137,7 +137,7 @@ profiles:
     extends: _base_local
     description: Local watermark profile with scaled volume and three delay settings
     runtime: docker
-    script: scripts/streaming/run_watermark_matrix.py
+    script: scripts/streaming/official/run_watermark_matrix.py
     mode: official
     resource_class: medium
     meta:
@@ -147,7 +147,7 @@ profiles:
         max_fnr: 0.40
         max_fpr: 0.20
     args:
-      model: logistic_regression
+      model: random_forest
       feature_set: full
       trace_input_parquet: data/gold/splits/test.parquet
       trace_order_column: event_time
@@ -160,7 +160,7 @@ profiles:
       batch_size: 2000
       metrics_timeout_sec: 1200
       metrics_idle_sec: 20
-      summary_csv: artifacts/streaming/scale_up/watermark_summary_local_medium.csv
+      summary_csv: artifacts/streaming/evaluation/watermark_summary_local_medium.csv
 
   layer_c_local_light:
     extends: layer_c_local_medium
@@ -170,7 +170,7 @@ profiles:
     extends: _base_local
     description: Local Layer C fault profile with scaled recovery pressure
     runtime: host
-    script: scripts/streaming/run_layer_c_matrix.py
+    script: scripts/streaming/official/run_layer_c_matrix.py
     mode: official
     resource_class: medium
     meta:
@@ -180,7 +180,7 @@ profiles:
         max_recovery_seconds: 180
     args:
       execution_mode: docker
-      model: logistic_regression
+      model: random_forest
       feature_set: full
       scenarios: [kafka_restart, spark_process_restart, producer_restart]
       warmup_rows: 30000
@@ -194,7 +194,7 @@ profiles:
       startup_wait_sec: 60
       metrics_timeout_sec: 900
       stream_run_seconds: 600
-      summary_csv: artifacts/streaming/scale_up/layer_c_summary_local_medium.csv
+      summary_csv: artifacts/streaming/evaluation/layer_c_summary_local_medium.csv
 
   stress_local_light:
     extends: stress_local_medium
@@ -204,7 +204,7 @@ profiles:
     extends: _base_local
     description: Local load-quality profile with scaled low/medium/high load steps
     runtime: docker
-    script: scripts/streaming/run_load_quality_matrix.py
+    script: scripts/streaming/official/run_load_quality_matrix.py
     mode: official
     resource_class: medium
     meta:
@@ -214,7 +214,7 @@ profiles:
         min_rows_per_sec_actual: 150
         max_lag_records_peak: 20000
     args:
-      model: logistic_regression
+      model: random_forest
       feature_set: full
       load_profiles:
         - "low:2000:20000"
@@ -225,7 +225,7 @@ profiles:
       batch_size: 3000
       metrics_timeout_sec: 1200
       metrics_idle_sec: 20
-      summary_csv: artifacts/streaming/scale_up/load_quality_summary_local_medium.csv
+      summary_csv: artifacts/streaming/evaluation/load_quality_summary_local_medium.csv
 
   layer_b_local_extended:
     extends: layer_b_local_medium
@@ -243,7 +243,7 @@ profiles:
       max_rows: 70000
       batch_size: 3000
       metrics_timeout_sec: 1200
-      summary_csv: artifacts/streaming/scale_up/layer_b_summary_local_extended.csv
+      summary_csv: artifacts/streaming/evaluation/layer_b_summary_local_extended.csv
 
   stress_local_extended:
     extends: stress_local_medium
@@ -262,4 +262,4 @@ profiles:
       warmup_rate_schedule: "1000:25"
       batch_size: 4000
       metrics_timeout_sec: 1500
-      summary_csv: artifacts/streaming/scale_up/load_quality_summary_local_extended.csv
+      summary_csv: artifacts/streaming/evaluation/load_quality_summary_local_extended.csv

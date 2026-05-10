@@ -11,7 +11,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from ids_platform.streaming.orchestration.benchmark_runner import append_benchmark_summary_row
+from ids_platform.streaming.benchmark.orchestration.runner import append_benchmark_summary_row
 
 
 class BenchmarkRunnerTests(unittest.TestCase):

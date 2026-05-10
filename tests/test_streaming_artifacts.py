@@ -9,7 +9,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from ids_platform.streaming.artifacts import (  # noqa: E402
+from ids_platform.streaming.core.artifacts import (  # noqa: E402
     resolve_feature_set_path,
     resolve_model_artifact_path,
 )

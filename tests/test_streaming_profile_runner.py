@@ -11,7 +11,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from ids_platform.streaming.orchestration.profile_runner import (
+from ids_platform.streaming.evaluation.orchestration.profile_runner import (
     build_command,
     evaluate_pass_fail,
     evaluate_profile_gates,
@@ -24,8 +24,8 @@ class ProfileRunnerTests(unittest.TestCase):
     def test_resolve_profile_applies_inheritance(self) -> None:
         profiles = {
             "base": {
-                "script": "scripts/streaming/run_layer_a_matrix.py",
-                "args": {"config": "configs/streaming/online.yaml", "repeats": 1},
+                "script": "scripts/streaming/official/run_layer_a_matrix.py",
+                "args": {"config": "configs/streaming/streaming.yaml", "repeats": 1},
                 "meta": {"mode": "official"},
             },
             "child": {
@@ -36,13 +36,13 @@ class ProfileRunnerTests(unittest.TestCase):
         }
 
         resolved = resolve_profile("child", profiles)
-        self.assertEqual(resolved["args"]["config"], "configs/streaming/online.yaml")
+        self.assertEqual(resolved["args"]["config"], "configs/streaming/streaming.yaml")
         self.assertEqual(resolved["args"]["repeats"], 3)
         self.assertNotIn("extends", resolved)
 
     def test_build_command_formats_layer_a_profile_objects(self) -> None:
         profile = {
-            "script": "scripts/streaming/run_layer_a_matrix.py",
+            "script": "scripts/streaming/official/run_layer_a_matrix.py",
             "runtime": "host",
             "args": {
                 "profiles": [
@@ -57,20 +57,20 @@ class ProfileRunnerTests(unittest.TestCase):
         }
 
         command = build_command(profile, "python")
-        self.assertEqual(command[0:2], ["python", "scripts/streaming/run_layer_a_matrix.py"])
+        self.assertEqual(command[0:2], ["python", "scripts/streaming/official/run_layer_a_matrix.py"])
         self.assertIn("A_low:500:4:10 seconds", command)
 
     def test_build_command_uses_noninteractive_docker_exec(self) -> None:
         profile = {
-            "script": "scripts/streaming/run_layer_b_matrix.py",
+            "script": "scripts/streaming/official/run_layer_b_matrix.py",
             "runtime": "docker",
             "docker_service": "ids-dev",
-            "args": {"config": "configs/streaming/online.yaml"},
+            "args": {"config": "configs/streaming/streaming.yaml"},
         }
 
         command = build_command(profile, "python")
         self.assertEqual(command[0:6], ["docker", "compose", "exec", "-T", "ids-dev", "python"])
-        self.assertIn("scripts/streaming/run_layer_b_matrix.py", command)
+        self.assertIn("scripts/streaming/official/run_layer_b_matrix.py", command)
 
     def test_include_profile_by_filters_respects_mode_and_resource_class(self) -> None:
         args = Namespace(

@@ -2,6 +2,41 @@
 
 ## Default Rule
 
+Use host PowerShell for offline training.
+
+## Offline Training
+
+Use these runbooks as command notebooks:
+
+```powershell
+.\scripts\runbooks\offline_train_model.ps1
+.\scripts\runbooks\offline_train_reduced.ps1
+.\scripts\runbooks\offline_train_full.ps1
+```
+
+Each file contains ready-made commands.
+Uncomment exactly one command block, then run the file.
+
+Direct examples:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/offline/run_offline_pipeline.py --phases 3 4 --feature-set reduced --models logistic_regression
+.\.venv\Scripts\python.exe scripts/offline/run_offline_pipeline.py --phases 3 4 --feature-set reduced --models logistic_regression gradient_boosting
+.\.venv\Scripts\python.exe scripts/offline/run_offline_pipeline.py --phases 3 --feature-set full --models random_forest
+```
+
+Recommended practical order before the final report:
+
+1. run reduced once with all three models in one pass
+2. review `artifacts/offline/evaluation/test_summary_reduced.csv`
+3. run full shortlist with `random_forest` and `gradient_boosting`
+4. add `logistic_regression` full only if you need a full 3x2 comparison table
+
+Important artifact rule:
+
+- filtered offline runs rewrite the feature-set summary files such as `valid_metrics_reduced.csv` and `test_summary_reduced.csv`
+- if you want one coherent comparison table for a feature set, run all relevant models for that feature set in the same command
+
 Use Docker-first execution for streaming work.
 
 Start shared services first:
@@ -20,7 +55,7 @@ Official evaluation follows this order:
 2. run the SUT streaming scorer
 3. collect matrix summary CSVs
 4. build the consolidated report
-5. review official results in Streamlit
+
 
 Prometheus and Grafana are optional sidecar observability only.
 
@@ -29,13 +64,13 @@ Prometheus and Grafana are optional sidecar observability only.
 Terminal 1, run the SUT:
 
 ```powershell
-docker compose exec -T ids-dev python scripts/streaming/run_structured_streaming.py --config configs/streaming/online.yaml --model logistic_regression --feature-set full --run-tag smoke_test --input-run-tag smoke_test --run-seconds 180
+docker compose exec -T ids-dev python scripts/streaming/official/run_structured_streaming.py --config configs/streaming/streaming.yaml --model logistic_regression --feature-set full --run-tag smoke_test --input-run-tag smoke_test --run-seconds 180
 ```
 
 Terminal 2, replay data:
 
 ```powershell
-docker compose exec -T ids-dev python scripts/streaming/replay_parquet_to_kafka.py --config configs/streaming/online.yaml --run-tag smoke_test
+docker compose exec -T ids-dev python scripts/streaming/official/replay_parquet_to_kafka.py --config configs/streaming/streaming.yaml --run-tag smoke_test
 ```
 
 Use `--available-now` only when the input topic already contains the data you want the stream to process.
@@ -45,49 +80,72 @@ Use `--available-now` only when the input topic already contains the data you wa
 Run a named profile from the local workstation profile set:
 
 ```powershell
-docker compose exec -T ids-dev python scripts/streaming/run_online_profile.py --profile-config experiments/streaming/profiles/local_profiles.yaml --profile smoke_gate
+docker compose exec -T ids-dev python scripts/streaming/official/run_streaming_profile.py --profile-config experiments/streaming/profiles/local_profiles.yaml --profile smoke_gate
 ```
 
 Profile execution wraps the lower-level matrix or benchmark script for that scenario.
+
+Runbook style:
+
+```powershell
+.\scripts\runbooks\daily_light_regression.ps1
+.\scripts\runbooks\daily_regression.ps1
+.\scripts\runbooks\post_daily_light_regression.ps1
+```
+
+Each runbook is now a command notebook.
+Uncomment the commands you want, then run the file.
+
+Recommended report path after offline retraining:
+
+1. run `smoke_gate`
+2. run `layer_a_500k`
+3. run `layer_b_500k`
+4. run `watermark_500k`
+5. run `layer_c_700k_fault`
+6. run `stress_main_testx4`
+7. build the final report markdown and JSON
 
 ## Matrix Run
 
 Run a single matrix directly when you want explicit control:
 
 ```powershell
-docker compose exec -T ids-dev python scripts/streaming/run_layer_a_matrix.py --config configs/streaming/online.yaml
-docker compose exec -T ids-dev python scripts/streaming/run_layer_b_matrix.py --config configs/streaming/online.yaml
-python scripts/streaming/run_layer_c_matrix.py --config configs/streaming/online.yaml
+docker compose exec -T ids-dev python scripts/streaming/official/run_layer_a_matrix.py --config configs/streaming/streaming.yaml
+docker compose exec -T ids-dev python scripts/streaming/official/run_layer_b_matrix.py --config configs/streaming/streaming.yaml
+python scripts/streaming/official/run_layer_c_matrix.py --config configs/streaming/streaming.yaml
 ```
 
-Layer C may run on the host depending on the profile/runtime setup.
+Layer C is the intentional host-orchestrated exception:
+- run the Layer C matrix from the host when the scenario needs Docker fault injection
+- keep `--execution-mode docker` for the SUT and replay subprocesses that Layer C launches
+- the canonical implementation is split under `src/ids_platform/streaming/evaluation/matrices/layer_c/`
+- `src/ids_platform/streaming/evaluation/matrices/layer_c_fault_matrix.py` is kept only as the compatibility entrypoint
+
+Practical configuration notes:
+
+- keep `logistic_regression + full` as the default streaming benchmark pair unless retrained full artifacts clearly show a better model with acceptable latency and operational stability
+- treat reduced models mainly as comparison baselines unless retraining materially improves their false-positive behavior
+- review `artifacts/streaming/evaluation/layer_c_summary_700k_fault.csv` before final report claims, because Kafka restart remains the slowest resilience path
 
 ## Build the Official Report
 
 Use the matrix summaries to produce the final report:
 
 ```powershell
-docker compose exec -T ids-dev python scripts/streaming/build_online_report.py --layer-a artifacts/streaming/online/layer_a_summary.csv --layer-b artifacts/streaming/online/layer_b_summary.csv --layer-c artifacts/streaming/online/layer_c_summary.csv
+docker compose exec -T ids-dev python scripts/streaming/official/build_streaming_report.py --layer-a artifacts/streaming/evaluation/layer_a_summary.csv --layer-b artifacts/streaming/evaluation/layer_b_summary.csv --layer-c artifacts/streaming/evaluation/layer_c_summary.csv
 ```
 
 The report JSON and markdown are part of the official evaluation outputs.
 
-## View Official Results
 
-Run Streamlit on the host:
-
-```powershell
-python -m streamlit run apps/streaming_dashboard.py
-```
-
-The dashboard reads summary CSVs and consolidated report artifacts. It does not depend on Prometheus data.
 
 ## Live Telemetry Only
 
 If you want live runtime telemetry during experiments:
 
 ```powershell
-docker compose exec -T ids-dev python scripts/streaming/export_prometheus_summary.py --config configs/streaming/online.yaml --port 9108
+docker compose exec -T ids-dev python scripts/streaming/observability/export_prometheus_summary.py --config configs/streaming/streaming.yaml --port 9108
 docker compose -f ops/observability/docker-compose.observability.yaml up -d
 ```
 

@@ -26,6 +26,7 @@ sampling:
 # null = dùng toàn bộ.
 memory:
   max_train_rows: 6000000           # null | int — increased from 2M for better coverage
+  max_train_feature_cells: 125000000  # practical local budget; lets full use ~1.6M rows at 78 features
 
 # ── Feature Selection ──────────────────────────────────────────────
 # Chạy sau imputer, trước model.  Kết quả lưu vào feature_manifest.

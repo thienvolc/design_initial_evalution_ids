@@ -1,7 +1,7 @@
 benchmark:
   name: fair_streaming_ids_v1
   output_root: artifacts/streaming/benchmark
-  detect_script: scripts/streaming/run_pandas_udf_benchmark.py
+  detect_script: scripts/streaming/benchmark/run_pandas_udf_benchmark.py
   detect_config: configs/streaming/detect.yaml
 
 contracts:

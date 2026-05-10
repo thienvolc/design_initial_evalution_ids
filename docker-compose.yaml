@@ -77,7 +77,7 @@ services:
       [
         "bash",
         "-lc",
-        "python scripts/streaming/run_benchmark_matrix.py --benchmark-config experiments/streaming/benchmark.yaml",
+        "python scripts/streaming/benchmark/run_benchmark_matrix.py --benchmark-config experiments/streaming/benchmark.yaml",
       ]
     profiles: ["benchmark"]
     restart: "no"

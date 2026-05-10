@@ -58,6 +58,24 @@ class OfflineFeatureSelectionTests(unittest.TestCase):
 
         self.assertEqual(merged, ["f1", "f2", "f3", "f4"])
 
+    def test_preprocessing_config_can_filter_to_selected_models(self) -> None:
+        config = PreprocessingConfig.from_yaml(
+            PROJECT_ROOT / "configs" / "modeling" / "preprocessing.yaml"
+        )
+
+        filtered = config.with_selected_models(["logistic_regression"])
+
+        enabled_models = [toggle.name for toggle in filtered.models if toggle.enabled]
+        self.assertEqual(enabled_models, ["logistic_regression"])
+
+    def test_preprocessing_config_rejects_unknown_selected_models(self) -> None:
+        config = PreprocessingConfig.from_yaml(
+            PROJECT_ROOT / "configs" / "modeling" / "preprocessing.yaml"
+        )
+
+        with self.assertRaises(ValueError):
+            config.with_selected_models(["svm"])
+
 
 if __name__ == "__main__":
     unittest.main()

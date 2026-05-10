@@ -16,7 +16,7 @@ Threshold: maximise recall subject to FPR budget (default 5%).
   Reports operating points at FPR 1%, 3%, 5%, 10%.
 
 Saves:
-  artifacts/models/          – per-model .joblib + best_model.joblib
+  artifacts/models/          – per-model .joblib
   artifacts/preprocessing/   – imputer.joblib, scaler.joblib, feature_manifest.json
   artifacts/models/          – valid_metrics.csv, best_model.json
 """
@@ -24,7 +24,6 @@ Saves:
 from __future__ import annotations
 
 import gc
-import shutil
 import time as time_mod
 from pathlib import Path
 from typing import Optional
@@ -60,11 +59,119 @@ from ids_platform.offline.paths import Paths
 FSEL_SAMPLE = 400_000   # rows for feature selection (streamed, not all-at-once)
 FPR_BUDGETS = [0.01, 0.03, 0.05, 0.10]  # operating points to evaluate
 DEFAULT_FPR = 0.05      # primary FPR budget for threshold selection
+DEFAULT_MAX_TRAIN_FEATURE_CELLS = 6_000_000 * 17  # keep full training within the reduced-memory envelope
 
 
 # ══════════════════════════════════════════════════════════════════════
 # 1. Data loading — proportional stratified subsample
 # ══════════════════════════════════════════════════════════════════════
+
+
+def _resolve_effective_max_rows(
+    requested_max_rows: int | None,
+    n_features: int,
+    max_train_feature_cells: int | None,
+    log,
+) -> int | None:
+    if requested_max_rows is None:
+        return None
+
+    feature_count = max(1, int(n_features))
+    feature_cell_budget = int(max_train_feature_cells or DEFAULT_MAX_TRAIN_FEATURE_CELLS)
+    memory_safe_cap = max(250_000, int(feature_cell_budget // feature_count))
+    effective_max_rows = min(int(requested_max_rows), memory_safe_cap)
+
+    if effective_max_rows < int(requested_max_rows):
+        log.info(
+            "  memory-aware max_rows adjustment: requested=%d -> effective=%d for %d features (feature_cell_budget=%d)",
+            int(requested_max_rows),
+            effective_max_rows,
+            feature_count,
+            feature_cell_budget,
+        )
+
+    return effective_max_rows
+
+
+def _load_split_streaming_sample(
+    path: Path,
+    columns: list[str],
+    target_rows: int,
+    log,
+) -> tuple[DataFrame, int, int, int]:
+    import pyarrow.dataset as pa_ds
+
+    dataset = pa_ds.dataset(path, format="parquet")
+    batch_size = 100_000
+
+    n_total = 0
+    n_benign = 0
+    n_attack = 0
+    label_scanner = pa_ds.Scanner.from_dataset(
+        dataset=dataset,
+        columns=["label_binary"],
+        batch_size=batch_size,
+    )
+    for batch in label_scanner.to_batches():
+        labels = batch.column("label_binary").to_numpy(zero_copy_only=False)
+        n_total += len(labels)
+        n_attack += int(np.count_nonzero(labels == 1))
+    n_benign = n_total - n_attack
+
+    if n_total <= target_rows:
+        return pd.read_parquet(path, columns=columns), n_total, n_benign, n_attack
+
+    frac = target_rows / n_total
+    target_benign = max(1, int(n_benign * frac)) if n_benign else 0
+    target_attack = max(1, int(n_attack * frac)) if n_attack else 0
+
+    sampled_chunks: list[DataFrame] = []
+    data_scanner = pa_ds.Scanner.from_dataset(
+        dataset=dataset,
+        columns=columns,
+        batch_size=batch_size,
+    )
+    for batch_index, batch in enumerate(data_scanner.to_batches()):
+        chunk = batch.to_pandas()
+        chunk_parts: list[DataFrame] = []
+        for label_value in (0, 1):
+            label_chunk = chunk.loc[chunk["label_binary"].eq(label_value)]
+            if label_chunk.empty:
+                continue
+            sampled_label_chunk = label_chunk.sample(
+                frac=frac,
+                random_state=42 + (batch_index * 17) + label_value,
+            )
+            if not sampled_label_chunk.empty:
+                chunk_parts.append(sampled_label_chunk)
+        if chunk_parts:
+            sampled_chunks.append(pd.concat(chunk_parts, ignore_index=True))
+
+    if not sampled_chunks:
+        return pd.read_parquet(path, columns=columns).head(target_rows), n_total, n_benign, n_attack
+
+    sampled_df = pd.concat(sampled_chunks, ignore_index=True)
+    del sampled_chunks, data_scanner, label_scanner, dataset
+    gc.collect()
+
+    sampled_parts: list[DataFrame] = []
+    for label_value, target_count in ((0, target_benign), (1, target_attack)):
+        label_df = sampled_df.loc[sampled_df["label_binary"].eq(label_value)]
+        if label_df.empty or target_count <= 0:
+            continue
+        if len(label_df) > target_count:
+            label_df = label_df.sample(n=target_count, random_state=42)
+        sampled_parts.append(label_df)
+
+    if sampled_parts:
+        sampled_df = pd.concat(sampled_parts, ignore_index=True)
+
+    if len(sampled_df) > target_rows:
+        sampled_df = sampled_df.sample(n=target_rows, random_state=42).reset_index(drop=True)
+    else:
+        sampled_df = sampled_df.reset_index(drop=True)
+
+    return sampled_df, n_total, n_benign, n_attack
 
 
 def _load_split(
@@ -87,24 +194,25 @@ def _load_split(
     cols = list(dict.fromkeys(
         [*features, "label_binary"] + (["label"] if need_label else [])
     ))
-    df = pd.read_parquet(path, columns=cols)
+
+    if max_rows is not None:
+        df, n_total, n_benign, n_attack = _load_split_streaming_sample(
+            path,
+            cols,
+            int(max_rows),
+            log,
+        )
+    else:
+        df = pd.read_parquet(path, columns=cols)
+        n_total = len(df)
+        n_benign = int(df["label_binary"].eq(0).sum())
+        n_attack = int(df["label_binary"].eq(1).sum())
 
     missing = [f for f in features if f not in df.columns]
     if missing:
         raise ValueError(f"Missing features in {path.name}: {missing}")
 
-    n_total  = len(df)
-    n_benign = int(df["label_binary"].eq(0).sum())
-    n_attack = int(df["label_binary"].eq(1).sum())
-
     if max_rows is not None and n_total > max_rows:
-        frac = max_rows / n_total
-        parts = []
-        for _, grp in df.groupby("label_binary"):
-            n = max(1, int(len(grp) * frac))
-            parts.append(grp.sample(n=n, random_state=42))
-        df = pd.concat(parts, ignore_index=True)
-
         n_b = int(df["label_binary"].eq(0).sum())
         n_a = int(df["label_binary"].eq(1).sum())
         log.info(
@@ -126,7 +234,10 @@ def _load_split(
 
     labels: Optional[Series] = df["label"].copy() if ("label" in df.columns and include_label) else None
     df = df.drop(columns=["label"], errors="ignore")
-    return df[features].copy(), df["label_binary"].astype(int), labels
+    feature_frame = df[features]
+    if any(dtype != np.float32 for dtype in feature_frame.dtypes):
+        feature_frame = feature_frame.astype(np.float32, copy=False)
+    return feature_frame, df["label_binary"].astype(np.int8, copy=False), labels
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -715,7 +826,7 @@ def _build_best_model_metadata(
 # ══════════════════════════════════════════════════════════════════════
 
 
-def run(paths: Paths) -> None:
+def run(paths: Paths, *, selected_models: list[str] | None = None) -> None:
     log = get_logger("phase03", paths.log_dir / "phase03_train.log")
     paths.ensure_dirs()
 
@@ -723,29 +834,49 @@ def run(paths: Paths) -> None:
         raise FileNotFoundError("Missing splits -- run Phase 02 first")
 
     preprocessing_config = PreprocessingConfig.from_yaml(paths.preprocessing_path)
+    preprocessing_config = preprocessing_config.with_selected_models(selected_models)
+    feature_selection_applied = _should_apply_feature_selection(
+        paths,
+        preprocessing_config.feature_selection,
+    )
     all_features, required_features, candidate_registry_path, required_registry_path = _resolve_training_feature_lists(
         paths,
         preprocessing_config,
         log,
     )
-    max_rows = preprocessing_config.memory.max_train_rows
-
-    # ── Pass 1: feature selection on streamed sample ─────────────────
-    ranked_selected_features, feature_ranking = _select_features_on_sample(
-        paths.train_path,
-        all_features,
-        preprocessing_config.feature_selection,
-        preprocessing_config.impute_strategy,
+    max_rows = _resolve_effective_max_rows(
+        preprocessing_config.memory.max_train_rows,
+        len(all_features),
+        preprocessing_config.memory.max_train_feature_cells,
         log,
     )
-    selected_features = _merge_selected_features(
-        strategy=preprocessing_config.feature_selection.strategy,
-        ranked_selected_features=ranked_selected_features,
-        required_features=required_features or [],
-        default_features=all_features,
-        k=preprocessing_config.feature_selection.k,
-        log=log,
-    )
+
+    # ── Pass 1: feature selection on streamed sample ─────────────────
+    if feature_selection_applied:
+        ranked_selected_features, feature_ranking = _select_features_on_sample(
+            paths.train_path,
+            all_features,
+            preprocessing_config.feature_selection,
+            preprocessing_config.impute_strategy,
+            log,
+        )
+        selected_features = _merge_selected_features(
+            strategy=preprocessing_config.feature_selection.strategy,
+            ranked_selected_features=ranked_selected_features,
+            required_features=required_features or [],
+            default_features=all_features,
+            k=preprocessing_config.feature_selection.k,
+            log=log,
+        )
+    else:
+        ranked_selected_features = list(all_features)
+        feature_ranking = []
+        selected_features = list(all_features)
+        log.info(
+            "  feature selection skipped for feature_set=%s -> using registry features (%d)",
+            paths.feature_set_name,
+            len(selected_features),
+        )
     gc.collect()
 
     # save feature ranking (for report / ablation analysis)
@@ -772,6 +903,8 @@ def run(paths: Paths) -> None:
         "START  features=%d  train=%d  valid=%d  max_rows=%s",
         len(selected_features), len(y_train), len(y_valid), max_rows or "all",
     )
+    if selected_models:
+        log.info("  selected models: %s", selected_models)
 
     # ── 3. Sampling (class_weight only) ──────────────────────────────
     x_train, y_train = _apply_sampling(x_train, y_train, preprocessing_config, log)
@@ -884,9 +1017,7 @@ def run(paths: Paths) -> None:
 
     best_name = str(validation_metrics_df.iloc[0]["model"])
     best_thr = float(validation_metrics_df.iloc[0].get("opt_threshold", 0.5))
-    best_src = saved_model_paths[best_name]
-    best_dst = paths.models_dir / paths.suffixed_name("best_model.joblib")
-    shutil.copyfile(best_src, best_dst)
+    best_model_path = saved_model_paths[best_name]
 
     # get operating points for best model
     best_operating_points = next(
@@ -896,7 +1027,7 @@ def run(paths: Paths) -> None:
     )
 
     # ── 6. Export preprocessor artifacts ─────────────────────────────
-    best_pipe = joblib.load(best_dst)
+    best_pipe = joblib.load(best_model_path)
     _save_preprocessor_artifacts(best_pipe, paths)
 
     # ── 7. Feature manifest ──────────────────────────────────────────
@@ -904,16 +1035,16 @@ def run(paths: Paths) -> None:
         best_pipe=best_pipe,
         all_features=all_features,
         selected_features=selected_features,
-        feature_selection_applied=_should_apply_feature_selection(paths, preprocessing_config.feature_selection),
+        feature_selection_applied=feature_selection_applied,
         feature_selection_strategy=(
             preprocessing_config.feature_selection.strategy
-            if _should_apply_feature_selection(paths, preprocessing_config.feature_selection)
+            if feature_selection_applied
             else None
         ),
         candidate_registry_path=candidate_registry_path,
         required_registry_path=required_registry_path,
         best_model_name=best_name,
-        best_model_path=best_dst,
+        best_model_path=best_model_path,
         best_threshold=best_thr,
         preprocessing_config=preprocessing_config,
         use_class_weight=use_class_weight,
@@ -929,7 +1060,7 @@ def run(paths: Paths) -> None:
         paths.models_dir / paths.suffixed_name("best_model.json"),
         _build_best_model_metadata(
             best_model_name=best_name,
-            best_model_path=best_dst,
+            best_model_path=best_model_path,
             best_threshold=best_thr,
             best_row=best_row,
             operating_points=best_operating_points,

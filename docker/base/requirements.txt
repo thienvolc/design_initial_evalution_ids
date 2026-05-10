@@ -6,6 +6,5 @@ pyspark==4.1.1
 confluent-kafka==2.3.0
 joblib==1.5.3
 scikit-learn==1.8.0
-streamlit==1.44.1
 prometheus-client==0.22.1
 psutil==5.9.8

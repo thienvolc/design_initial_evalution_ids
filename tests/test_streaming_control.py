@@ -15,7 +15,7 @@ from ids_platform.streaming.runtime.control import (  # noqa: E402
     shutdown_request_path,
     write_shutdown_request,
 )
-from ids_platform.streaming.orchestration import fault_matrix  # noqa: E402
+from ids_platform.streaming.evaluation.orchestration import fault_matrix  # noqa: E402
 
 
 class StreamingControlTests(unittest.TestCase):
@@ -48,6 +48,107 @@ class StreamingControlTests(unittest.TestCase):
         wait_exit_mock.assert_called_once_with(process, timeout_sec=45)
         cleanup_mock.assert_not_called()
         stop_background_process_mock.assert_called_once_with(process)
+
+    def test_wait_for_stream_shutdown_rechecks_after_settle_window(self) -> None:
+        with mock.patch.object(
+            fault_matrix,
+            "_iter_docker_stream_processes",
+            side_effect=[
+                [{"pid": 101, "command_line": "run_structured_streaming.py demo"}],
+                [],
+                [{"pid": 102, "command_line": "run_structured_streaming.py demo"}],
+                [],
+                [],
+            ],
+        ):
+            stopped = fault_matrix.wait_for_stream_shutdown(
+                run_tag="demo",
+                execution_mode="docker",
+                timeout_sec=2,
+                poll_sec=0.01,
+                settle_sec=0.01,
+            )
+
+        self.assertTrue(stopped)
+
+    def test_wait_for_kafka_topics_ready_uses_docker_probe_in_docker_mode(self) -> None:
+        with mock.patch.object(
+            fault_matrix,
+            "run_command",
+            side_effect=[
+                mock.Mock(returncode=1, stdout="", stderr="not ready"),
+                mock.Mock(returncode=0, stdout="", stderr=""),
+                mock.Mock(returncode=0, stdout="", stderr=""),
+            ],
+        ) as run_command_mock:
+            ready = fault_matrix.wait_for_kafka_topics_ready(
+                bootstrap_servers="kafka:29092",
+                topic_names=["ids.raw.flows", "ids.predictions.binary", "ids.metrics"],
+                timeout_sec=1,
+                poll_sec=0.01,
+                execution_mode="docker",
+                consecutive_successes=2,
+            )
+
+        self.assertTrue(ready)
+        self.assertEqual(run_command_mock.call_count, 3)
+        first_call = run_command_mock.call_args_list[0]
+        self.assertIn("docker", first_call.args[0])
+        self.assertIn("ids-dev", first_call.args[0])
+        self.assertIn("kafka:29092", first_call.args[0])
+
+    def test_wait_for_kafka_topics_ready_returns_false_when_docker_probe_never_recovers(self) -> None:
+        with mock.patch.object(
+            fault_matrix,
+            "run_command",
+            return_value=mock.Mock(returncode=1, stdout="", stderr="not ready"),
+        ):
+            ready = fault_matrix.wait_for_kafka_topics_ready(
+                bootstrap_servers="kafka:29092",
+                topic_names=["ids.metrics"],
+                timeout_sec=1,
+                poll_sec=0.01,
+                execution_mode="docker",
+                consecutive_successes=2,
+            )
+
+        self.assertFalse(ready)
+
+    def test_wait_for_kafka_topics_ready_docker_resets_success_streak_after_failure(self) -> None:
+        with mock.patch.object(
+            fault_matrix,
+            "run_command",
+            side_effect=[
+                mock.Mock(returncode=0, stdout="", stderr=""),
+                mock.Mock(returncode=1, stdout="", stderr="not ready"),
+                mock.Mock(returncode=0, stdout="", stderr=""),
+                mock.Mock(returncode=0, stdout="", stderr=""),
+            ],
+        ):
+            ready = fault_matrix.wait_for_kafka_topics_ready(
+                bootstrap_servers="kafka:29092",
+                topic_names=["ids.metrics"],
+                timeout_sec=1,
+                poll_sec=0.01,
+                execution_mode="docker",
+                consecutive_successes=2,
+            )
+
+        self.assertTrue(ready)
+
+    def test_describe_kafka_topics_state_reads_docker_probe_output(self) -> None:
+        with mock.patch.object(
+            fault_matrix,
+            "run_command",
+            return_value=mock.Mock(returncode=0, stdout="leader_unavailable:ids.metrics:0\n", stderr=""),
+        ):
+            state = fault_matrix.describe_kafka_topics_state(
+                bootstrap_servers="kafka:29092",
+                topic_names=["ids.metrics"],
+                execution_mode="docker",
+            )
+
+        self.assertEqual(state, "leader_unavailable:ids.metrics:0")
 
 
 if __name__ == "__main__":

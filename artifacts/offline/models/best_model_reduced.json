@@ -1,64 +1,64 @@
 {
-  "best_model": "random_forest",
-  "model_path": "D:\\school\\semester_6\\2_bigdata_is405\\05_project\\design_initial_evalution_ids\\artifacts\\offline\\models\\best_model_reduced.joblib",
-  "opt_threshold": 0.07,
+  "best_model": "gradient_boosting",
+  "model_path": "D:\\school\\semester_6\\2_bigdata_is405\\05_project\\design_initial_evalution_ids\\artifacts\\offline\\models\\gradient_boosting_reduced.joblib",
+  "opt_threshold": 0.08700000000000001,
   "fpr_budget": 0.05,
   "selection_metric": "recall@FPR<=5%",
   "class_weight": true,
   "valid_metrics": {
-    "accuracy": 0.950375,
-    "precision": 0.00735,
-    "recall": 0.676678,
-    "f1": 0.014543,
-    "fpr": 0.049477,
-    "fnr": 0.323322
+    "accuracy": 0.95039,
+    "precision": 0.007239,
+    "recall": 0.666078,
+    "f1": 0.014323,
+    "fpr": 0.049456,
+    "fnr": 0.333922
   },
   "default_metrics": {
-    "recall": 0.485866,
-    "precision": 0.037874,
-    "f1": 0.07027,
-    "fpr": 0.006683
+    "recall": 0.530035,
+    "precision": 0.034762,
+    "f1": 0.065246,
+    "fpr": 0.007968
   },
   "operating_points": {
     "fpr_1pct": {
-      "threshold": 0.411,
-      "recall": 0.524735,
-      "fpr": 0.009949,
-      "precision": 0.027762,
-      "f1": 0.052734
+      "threshold": 0.378,
+      "recall": 0.533569,
+      "fpr": 0.008915,
+      "precision": 0.031386,
+      "f1": 0.059285
     },
     "fpr_3pct": {
-      "threshold": 0.125,
-      "recall": 0.636042,
-      "fpr": 0.029863,
-      "precision": 0.0114,
-      "f1": 0.022399
+      "threshold": 0.123,
+      "recall": 0.637809,
+      "fpr": 0.02956,
+      "precision": 0.011547,
+      "f1": 0.022684
     },
     "fpr_5pct": {
-      "threshold": 0.07,
-      "recall": 0.676678,
-      "fpr": 0.049477,
-      "precision": 0.00735,
-      "f1": 0.014543
+      "threshold": 0.087,
+      "recall": 0.666078,
+      "fpr": 0.049456,
+      "precision": 0.007239,
+      "f1": 0.014323
     },
     "fpr_10pct": {
-      "threshold": 0.026,
-      "recall": 0.70318,
-      "fpr": 0.099105,
-      "precision": 0.003827,
-      "f1": 0.007612
+      "threshold": 0.056,
+      "recall": 0.687279,
+      "fpr": 0.099322,
+      "precision": 0.003732,
+      "f1": 0.007425
     },
     "default_0.5": {
       "threshold": 0.5,
-      "recall": 0.485866,
-      "fpr": 0.006683,
-      "precision": 0.037874,
-      "f1": 0.07027
+      "recall": 0.530035,
+      "fpr": 0.007968,
+      "precision": 0.034762,
+      "f1": 0.065246
     }
   },
   "timing": {
-    "train_time_s": 1383.63,
-    "valid_infer_time_s": 19.88,
-    "valid_rows_per_sec": 52608.0
+    "train_time_s": 185.85,
+    "valid_infer_time_s": 15.05,
+    "valid_rows_per_sec": 69488.0
   }
 }

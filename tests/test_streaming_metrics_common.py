@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import csv
+import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -11,8 +13,9 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from ids_platform.streaming.matrices.common import (
+from ids_platform.streaming.evaluation.matrices.common import (
     TIMESERIES_FIELDNAMES,
+    collect_matching_metrics,
     flatten_metrics_payload,
     is_terminal_metric_payload,
     summarize_runtime_metrics,
@@ -25,6 +28,49 @@ _TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 class StreamingMetricsCommonTests(unittest.TestCase):
+    def test_collect_matching_metrics_drains_after_terminal_marker_gracefully(self) -> None:
+        class _FakeMessage:
+            def __init__(self, payload: dict | None):
+                self._payload = payload
+
+            def error(self):
+                return None
+
+            def value(self):
+                return json.dumps(self._payload).encode("utf-8")
+
+        class _FakeConsumer:
+            def __init__(self, *_args, **_kwargs):
+                self._messages = [
+                    _FakeMessage({"run_tag": "demo", "event_type": "run_completed", "final": True}),
+                    _FakeMessage({"run_tag": "demo", "batch_id": 2, "rows": 20}),
+                    _FakeMessage({"run_tag": "demo", "batch_id": 1, "rows": 10}),
+                    None,
+                    None,
+                ]
+
+            def subscribe(self, _topics):
+                return None
+
+            def poll(self, _timeout):
+                if self._messages:
+                    return self._messages.pop(0)
+                return None
+
+            def close(self):
+                return None
+
+        with mock.patch("ids_platform.streaming.evaluation.matrices.common.Consumer", _FakeConsumer):
+            rows = collect_matching_metrics(
+                bootstrap_servers="dummy:9092",
+                topic="ids.metrics",
+                run_tag="demo",
+                timeout_sec=2,
+                idle_sec=0,
+            )
+
+        self.assertEqual([row["batch_id"] for row in rows], [1, 2])
+
     def test_is_terminal_metric_payload_detects_run_completed_event(self) -> None:
         self.assertTrue(is_terminal_metric_payload({"event_type": "run_completed", "run_tag": "demo"}))
         self.assertTrue(is_terminal_metric_payload({"final": True, "run_tag": "demo"}))

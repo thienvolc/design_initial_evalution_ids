@@ -120,7 +120,7 @@ def build_replay_command(
 ) -> list[str]:
     command = [
         python_exe,
-        "scripts/streaming/replay_parquet_to_kafka.py",
+        "scripts/streaming/official/replay_parquet_to_kafka.py",
         "--config",
         config,
         "--run-tag",

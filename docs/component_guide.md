@@ -6,17 +6,26 @@ Use this file to find the right module before changing code.
 
 - `scripts/offline/run_offline_pipeline.py`
   - launches the offline preprocessing, training, and evaluation path
-- `scripts/streaming/run_structured_streaming.py`
+- `scripts/runbooks/offline_train_model.ps1`
+  - host-side runbook for selective offline retraining by feature set and model list
+- `scripts/streaming/official/run_structured_streaming.py`
   - launches the streaming SUT
-- `scripts/streaming/replay_parquet_to_kafka.py`
+- `scripts/streaming/official/replay_parquet_to_kafka.py`
   - replays parquet records into Kafka
-- `scripts/streaming/run_online_profile.py`
+- `scripts/streaming/official/run_streaming_profile.py`
   - launches a named profile from YAML
-- `scripts/streaming/run_online_full_evaluation.py`
-  - orchestrates the end-to-end online evaluation campaign
-- `scripts/streaming/build_online_report.py`
+- `scripts/streaming/official/build_streaming_report.py`
   - aggregates matrix outputs into the final official report
-- `scripts/streaming/export_prometheus_summary.py`
+
+## Active Secondary Entry Points
+
+- `scripts/streaming/official/build_timeseries_plots.py`
+  - renders plots from already-produced metrics timeseries CSV files
+- `scripts/streaming/benchmark/run_benchmark_matrix.py`
+  - launches benchmark scenarios outside the main official evaluation flow
+- `scripts/streaming/benchmark/run_pandas_udf_benchmark.py`
+  - launches the pandas UDF benchmark runtime
+- `scripts/streaming/observability/export_prometheus_summary.py`
   - exposes live runtime telemetry for Prometheus
 
 ## Offline Modules
@@ -30,6 +39,10 @@ Use this file to find the right module before changing code.
 
 ## Streaming Runtime
 
+- `src/ids_platform/streaming/core/config.py`
+  - shared streaming config loading and bootstrap resolution
+- `src/ids_platform/streaming/core/artifacts.py`
+  - shared artifact path and threshold helpers
 - `src/ids_platform/streaming/runtime/structured_streaming_job.py`
   - main streaming runtime orchestration for the SUT
 - `src/ids_platform/streaming/runtime/pipeline.py`
@@ -38,8 +51,6 @@ Use this file to find the right module before changing code.
   - model scoring UDFs and prediction column assembly
 - `src/ids_platform/streaming/runtime/query.py`
   - query trigger and naming helpers
-- `src/ids_platform/streaming/artifacts.py`
-  - artifact path resolution for models, manifests, and outputs
 
 ## Replay
 
@@ -48,46 +59,53 @@ Use this file to find the right module before changing code.
 - `src/ids_platform/streaming/replay/config.py`
   - replay/runtime estimation helpers
 
+## Evaluation Namespace
+
+- `src/ids_platform/streaming/evaluation/matrices/`
+  - canonical import namespace for official matrix modules
+- `src/ids_platform/streaming/evaluation/orchestration/`
+  - canonical import namespace for official orchestration modules
+- `src/ids_platform/streaming/evaluation/reporting/`
+  - canonical import namespace for official reporting modules
+
 ## Experiment Matrices
 
-- `src/ids_platform/streaming/matrices/layer_a_matrix.py`
-  - system knob experiments
-- `src/ids_platform/streaming/matrices/layer_b_matrix.py`
-  - model and feature-set experiments
-- `src/ids_platform/streaming/matrices/layer_c_fault_matrix.py`
-  - fault and recovery experiments
-- `src/ids_platform/streaming/matrices/watermark_matrix.py`
-  - watermark experiments
-- `src/ids_platform/streaming/matrices/load_quality_matrix.py`
-  - quality-under-load experiments
-- `src/ids_platform/streaming/matrices/common.py`
-  - shared matrix helpers for process readiness, metrics polling, and common utilities
+- `src/ids_platform/streaming/evaluation/matrices/layer_a_matrix.py`
+  - canonical implementation module for system knob experiments
+- `src/ids_platform/streaming/evaluation/matrices/layer_b_matrix.py`
+  - canonical implementation module for model and feature-set experiments
+- `src/ids_platform/streaming/evaluation/matrices/layer_c/`
+  - canonical Layer C implementation package for fault orchestration, replay, recovery, shutdown, and runtime validation
+- `src/ids_platform/streaming/evaluation/matrices/layer_c_fault_matrix.py`
+  - compatibility entrypoint that preserves historic Layer C imports and delegates to the `layer_c/` package
+- `src/ids_platform/streaming/evaluation/matrices/watermark_matrix.py`
+  - canonical implementation module for watermark experiments
+- `src/ids_platform/streaming/evaluation/matrices/load_quality_matrix.py`
+  - canonical implementation module for quality-under-load experiments
+- `src/ids_platform/streaming/evaluation/matrices/common.py`
+  - canonical shared helpers for process readiness, metrics polling, and common utilities
 
 ## Orchestration
 
-- `src/ids_platform/streaming/orchestration/profile_runner.py`
-  - resolves and validates profile commands
-- `src/ids_platform/streaming/orchestration/profile_service.py`
-  - profile loading and execution service helpers
-- `src/ids_platform/streaming/orchestration/full_evaluation.py`
-  - sequencing for full evaluation runs
-- `src/ids_platform/streaming/orchestration/benchmark_runner.py`
+- `src/ids_platform/streaming/evaluation/orchestration/profile_runner.py`
+  - canonical implementation module for profile command resolution
+- `src/ids_platform/streaming/evaluation/orchestration/profile_service.py`
+  - canonical implementation module for profile loading and execution
+- `src/ids_platform/streaming/benchmark/orchestration/runner.py`
   - benchmark matrix orchestration and summary writing
-- `src/ids_platform/streaming/orchestration/fault_matrix.py`
-  - process management for fault scenarios
+- `src/ids_platform/streaming/evaluation/orchestration/fault_matrix.py`
+  - canonical implementation module for Layer C fault process management
 
-## Reporting and UI
+## Reporting
 
-- `src/ids_platform/streaming/reporting/report_builder.py`
-  - builds official report JSON and markdown from summary CSVs
-- `src/ids_platform/streaming/reporting/metrics_reader.py`
-  - reads debug telemetry from Kafka for reporting helpers
-- `apps/streaming_dashboard.py`
-  - official post-run evaluation dashboard
+- `src/ids_platform/streaming/evaluation/reporting/report_builder.py`
+  - canonical implementation module that builds official report JSON and markdown from summary CSVs
+- `src/ids_platform/streaming/evaluation/reporting/metrics_reader.py`
+  - canonical implementation module that reads debug telemetry from Kafka for reporting helpers
 
 ## Observability
 
-- `src/ids_platform/streaming/metrics/prometheus_exporter.py`
+- `src/ids_platform/streaming/observability/prometheus_exporter.py`
   - Kafka-to-Prometheus live telemetry exporter
 - `ops/observability/prometheus.yml`
   - Prometheus scrape configuration

@@ -3,22 +3,30 @@ $ErrorActionPreference = "Stop"
 $PY = ".\.venv\Scripts\python.exe"
 $PROF = "experiments/streaming/profiles/local_profiles.yaml"
 
-Write-Host "[1/6] smoke_gate"
-# & $PY scripts/streaming/run_online_profile.py --profile-config $PROF --profile smoke_gate --gate-only
+Write-Host "Streaming local runbook"
+Write-Host "Uncomment the commands you want, then run this file."
 
-Write-Host "[2/6] layer_a_local_light"
-# & $PY scripts/streaming/run_online_profile.py --profile-config $PROF --profile layer_a_local_light --gate-only
+# 1. List available local profiles
+# & $PY scripts/streaming/official/run_streaming_profile.py --profile-config $PROF --list
 
-Write-Host "[3/6] layer_b_light"
-# & $PY scripts/streaming/run_online_profile.py --profile-config $PROF --profile layer_b_light --gate-only
+# 2. Smoke gate before anything longer
+# & $PY scripts/streaming/official/run_streaming_profile.py --profile-config $PROF --profile smoke_gate --gate-only
 
-Write-Host "[4/6] watermark_local_light"
-# & $PY scripts/streaming/run_online_profile.py --profile-config $PROF --profile watermark_local_light --gate-only
+# 3. Local main path: Layer A
+# & $PY scripts/streaming/official/run_streaming_profile.py --profile-config $PROF --profile layer_a_local_medium
 
-Write-Host "[5/6] layer_c_local_light"
-# & $PY scripts/streaming/run_online_profile.py --profile-config $PROF --profile layer_c_local_light
+# 4. Local main path: Layer B
+# & $PY scripts/streaming/official/run_streaming_profile.py --profile-config $PROF --profile layer_b_local_medium
 
-Write-Host "[6/6] stress_local_light"
-# & $PY scripts/streaming/run_online_profile.py --profile-config $PROF --profile stress_local_light --gate-only
+# 5. Local main path: Watermark
+# & $PY scripts/streaming/official/run_streaming_profile.py --profile-config $PROF --profile watermark_local_medium
 
-Write-Host "Daily light regression complete."
+# 6. Local main path: Layer C
+# & $PY scripts/streaming/official/run_streaming_profile.py --profile-config $PROF --profile layer_c_local_medium
+
+# 7. Local main path: Load quality
+# & $PY scripts/streaming/official/run_streaming_profile.py --profile-config $PROF --profile stress_local_medium
+
+# Optional local reruns / longer checks
+# & $PY scripts/streaming/official/run_streaming_profile.py --profile-config $PROF --profile layer_b_local_extended --allow-heavy
+# & $PY scripts/streaming/official/run_streaming_profile.py --profile-config $PROF --profile stress_local_extended --allow-heavy

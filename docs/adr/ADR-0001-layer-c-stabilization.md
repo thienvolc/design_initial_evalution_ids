@@ -46,8 +46,8 @@ Layer C does not run fully inside Docker as a single controller process.
 
 Instead:
 
-- host Python runs `scripts/streaming/run_online_profile.py`
-- host orchestration runs `scripts/streaming/run_layer_c_matrix.py`
+- host Python runs `scripts/streaming/official/run_streaming_profile.py`
+- host orchestration runs `scripts/streaming/official/run_layer_c_matrix.py`
 - fault injection is controlled from the host
 - streaming SUT and replay subprocesses are started with `execution_mode=docker`
 - Kafka inside container network uses `kafka:29092`
@@ -78,7 +78,7 @@ Resolution:
 
 Files:
 
-- `src/ids_platform/streaming/matrices/layer_c_fault_matrix.py`
+- `src/ids_platform/streaming/evaluation/matrices/layer_c_fault_matrix.py`
 
 ### 2. Unsupported Spark checkpoint file manager config
 
@@ -120,7 +120,7 @@ Resolution:
 Files:
 
 - `src/ids_platform/common/subprocess.py`
-- `src/ids_platform/streaming/matrices/common.py`
+- `src/ids_platform/streaming/evaluation/matrices/common.py`
 
 ### 4. Checkpoint concurrency during `spark_process_restart`
 
@@ -145,7 +145,7 @@ Resolution:
 Files:
 
 - `src/ids_platform/streaming/runtime/control.py`
-- `src/ids_platform/streaming/orchestration/fault_matrix.py`
+- `src/ids_platform/streaming/evaluation/orchestration/fault_matrix.py`
 - `src/ids_platform/streaming/runtime/structured_streaming_job.py`
 
 ### 5. Shutdown between micro-batches causing broken restart state
@@ -173,8 +173,8 @@ Important note:
 
 Files:
 
-- `src/ids_platform/streaming/matrices/common.py`
-- `src/ids_platform/streaming/matrices/layer_c_fault_matrix.py`
+- `src/ids_platform/streaming/evaluation/matrices/common.py`
+- `src/ids_platform/streaming/evaluation/matrices/layer_c_fault_matrix.py`
 
 ### 6. False positive recovery from terminal marker payloads
 
@@ -200,8 +200,8 @@ Validation rules:
 
 Files:
 
-- `src/ids_platform/streaming/reporting/metrics_reader.py`
-- `src/ids_platform/streaming/matrices/layer_c_fault_matrix.py`
+- `src/ids_platform/streaming/evaluation/reporting/metrics_reader.py`
+- `src/ids_platform/streaming/evaluation/matrices/layer_c_fault_matrix.py`
 
 ### 7. Run-tag collision risk
 
@@ -219,7 +219,7 @@ Resolution:
 
 Files:
 
-- `src/ids_platform/streaming/matrices/layer_c_fault_matrix.py`
+- `src/ids_platform/streaming/evaluation/matrices/layer_c_fault_matrix.py`
 
 ### 8. Sentinel support existed but Layer C did not use it correctly
 
@@ -247,8 +247,8 @@ Resolution:
 
 Files:
 
-- `src/ids_platform/streaming/orchestration/fault_matrix.py`
-- `src/ids_platform/streaming/matrices/layer_c_fault_matrix.py`
+- `src/ids_platform/streaming/evaluation/orchestration/fault_matrix.py`
+- `src/ids_platform/streaming/evaluation/matrices/layer_c_fault_matrix.py`
 - `src/ids_platform/streaming/runtime/structured_streaming_job.py`
 
 ### 9. `input_sentinel_seen` was an insufficient graceful-stop marker
@@ -278,16 +278,21 @@ Additional changes:
 
 Files:
 
-- `src/ids_platform/streaming/matrices/layer_c_fault_matrix.py`
-- `src/ids_platform/streaming/matrices/common.py`
+- `src/ids_platform/streaming/evaluation/matrices/layer_c_fault_matrix.py`
+- `src/ids_platform/streaming/evaluation/matrices/common.py`
 
 ## Documentation and Profile Changes
 
+Note:
+
+- Layer C implementation is now split across `src/ids_platform/streaming/evaluation/matrices/layer_c/`
+- `src/ids_platform/streaming/evaluation/matrices/layer_c_fault_matrix.py` remains as the compatibility facade for existing imports/tests
+
 Updated:
 
-- `scripts/streaming/run_layer_c_matrix.py`
+- `scripts/streaming/official/run_layer_c_matrix.py`
 - `experiments/streaming/profiles/local_profiles.yaml`
-- `experiments/streaming/profiles/online_profiles.yaml`
+- `experiments/streaming/profiles/streaming_profiles.yaml`
 - `scripts/streaming/README.md`
 
 Effective contract:
@@ -377,16 +382,17 @@ After the fixes above, `layer_c_local_light` reached the following desired state
 
 ## Files Most Relevant to Layer C Stabilization
 
-- `scripts/streaming/run_layer_c_matrix.py`
+- `scripts/streaming/official/run_layer_c_matrix.py`
 - `scripts/streaming/README.md`
 - `experiments/streaming/profiles/local_profiles.yaml`
-- `experiments/streaming/profiles/online_profiles.yaml`
+- `experiments/streaming/profiles/streaming_profiles.yaml`
 - `src/ids_platform/common/subprocess.py`
 - `src/ids_platform/streaming/runtime/control.py`
-- `src/ids_platform/streaming/orchestration/fault_matrix.py`
-- `src/ids_platform/streaming/matrices/common.py`
-- `src/ids_platform/streaming/matrices/layer_c_fault_matrix.py`
-- `src/ids_platform/streaming/reporting/metrics_reader.py`
+- `src/ids_platform/streaming/evaluation/orchestration/fault_matrix.py`
+- `src/ids_platform/streaming/evaluation/matrices/common.py`
+- `src/ids_platform/streaming/evaluation/matrices/layer_c/`
+- `src/ids_platform/streaming/evaluation/matrices/layer_c_fault_matrix.py`
+- `src/ids_platform/streaming/evaluation/reporting/metrics_reader.py`
 - `src/ids_platform/streaming/runtime/structured_streaming_job.py`
 
 ## Follow-up
