@@ -81,7 +81,7 @@ def _build_cdf(
     show_raw_replicates: bool = False,
 ) -> None:
     args = [
-        "scripts/streaming/official/build_latency_cdf_plot.py",
+        "scripts/paper/build_latency_cdf_plot.py",
         "--inputs",
         *inputs,
         "--metric",

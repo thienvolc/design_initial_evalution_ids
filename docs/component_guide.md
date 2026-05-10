@@ -14,8 +14,7 @@ Use this file to find the right module before changing code.
   - replays parquet records into Kafka
 - `scripts/streaming/official/run_streaming_profile.py`
   - launches a named profile from YAML
-- `scripts/streaming/official/build_streaming_report.py`
-  - aggregates matrix outputs into the final official report
+
 
 ## Active Secondary Entry Points
 
@@ -27,6 +26,20 @@ Use this file to find the right module before changing code.
   - launches the pandas UDF benchmark runtime
 - `scripts/streaming/observability/export_prometheus_summary.py`
   - exposes live runtime telemetry for Prometheus
+
+## Paper & Analysis Scripts
+
+- `scripts/paper/build_paper_plots.py`
+  - orchestrates all CDF and timeseries plot generation for the paper
+- `scripts/paper/build_latency_cdf_plot.py`
+  - builds empirical CDF plots from timeseries CSV files (called by build_paper_plots)
+
+## Experimental / Research Scripts
+
+- `scripts/offline/experimental/ablation_gbt.py`
+  - offline feature ablation study for gradient boosting (non-pipeline, research use)
+- `scripts/offline/experimental/feature_sweep.py`
+  - offline feature count sweep across models (non-pipeline, research use)
 
 ## Offline Modules
 
@@ -65,8 +78,7 @@ Use this file to find the right module before changing code.
   - canonical import namespace for official matrix modules
 - `src/ids_platform/streaming/evaluation/orchestration/`
   - canonical import namespace for official orchestration modules
-- `src/ids_platform/streaming/evaluation/reporting/`
-  - canonical import namespace for official reporting modules
+
 
 ## Experiment Matrices
 
@@ -95,13 +107,6 @@ Use this file to find the right module before changing code.
   - benchmark matrix orchestration and summary writing
 - `src/ids_platform/streaming/evaluation/orchestration/fault_matrix.py`
   - canonical implementation module for Layer C fault process management
-
-## Reporting
-
-- `src/ids_platform/streaming/evaluation/reporting/report_builder.py`
-  - canonical implementation module that builds official report JSON and markdown from summary CSVs
-- `src/ids_platform/streaming/evaluation/reporting/metrics_reader.py`
-  - canonical implementation module that reads debug telemetry from Kafka for reporting helpers
 
 ## Observability
 

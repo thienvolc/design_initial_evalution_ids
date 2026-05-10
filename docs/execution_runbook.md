@@ -54,7 +54,6 @@ Official evaluation follows this order:
 1. replay traffic into Kafka
 2. run the SUT streaming scorer
 3. collect matrix summary CSVs
-4. build the consolidated report
 
 
 Prometheus and Grafana are optional sidecar observability only.
@@ -104,7 +103,6 @@ Recommended report path after offline retraining:
 4. run `watermark_500k`
 5. run `layer_c_700k_fault`
 6. run `stress_main_testx4`
-7. build the final report markdown and JSON
 
 ## Matrix Run
 
@@ -127,16 +125,6 @@ Practical configuration notes:
 - keep `logistic_regression + full` as the default streaming benchmark pair unless retrained full artifacts clearly show a better model with acceptable latency and operational stability
 - treat reduced models mainly as comparison baselines unless retraining materially improves their false-positive behavior
 - review `artifacts/streaming/evaluation/layer_c_summary_700k_fault.csv` before final report claims, because Kafka restart remains the slowest resilience path
-
-## Build the Official Report
-
-Use the matrix summaries to produce the final report:
-
-```powershell
-docker compose exec -T ids-dev python scripts/streaming/official/build_streaming_report.py --layer-a artifacts/streaming/evaluation/layer_a_summary.csv --layer-b artifacts/streaming/evaluation/layer_b_summary.csv --layer-c artifacts/streaming/evaluation/layer_c_summary.csv
-```
-
-The report JSON and markdown are part of the official evaluation outputs.
 
 
 

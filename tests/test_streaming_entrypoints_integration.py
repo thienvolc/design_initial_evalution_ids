@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import shutil
 import subprocess
 import sys
@@ -146,8 +145,6 @@ class StreamingEntrypointIntegrationTests(unittest.TestCase):
             "scripts/streaming/official/run_watermark_matrix.py",
             "scripts/streaming/official/run_load_quality_matrix.py",
             "scripts/streaming/official/run_streaming_profile.py",
-            "scripts/streaming/official/build_streaming_report.py",
-            "scripts/streaming/official/read_metrics_for_run.py",
             "scripts/streaming/official/build_timeseries_plots.py",
             "scripts/streaming/benchmark/run_benchmark_matrix.py",
             "scripts/streaming/benchmark/run_pandas_udf_benchmark.py",
@@ -239,149 +236,6 @@ class StreamingEntrypointIntegrationTests(unittest.TestCase):
             self.assertIn("Gate-only mode", result.stdout)
             self.assertIn("PASS", result.stdout)
 
-    def test_streaming_eval_report_generates_markdown_and_json(self) -> None:
-        with _workspace_tempdir() as temp_path:
-            layer_a = temp_path / "layer_a.csv"
-            layer_b = temp_path / "layer_b.csv"
-            layer_c = temp_path / "layer_c.csv"
-            out_md = temp_path / "report.md"
-            out_json = temp_path / "report.json"
-
-            self._write_csv(
-                layer_a,
-                [
-                    "status",
-                    "profile",
-                    "max_offsets_per_trigger",
-                    "shuffle_partitions",
-                    "trigger_interval",
-                    "load_profile",
-                    "rows_per_sec_avg",
-                    "source_to_emit_p95_ms_max",
-                    "e2e_p95_ms_max",
-                    "watermark_delay_sec",
-                    "metric_warnings",
-                    "driver_cpu_percent_avg",
-                    "driver_rss_mb_avg",
-                    "executor_mem_util_avg",
-                ],
-                [
-                    {
-                        "status": "ok",
-                        "profile": "A_mid",
-                        "max_offsets_per_trigger": "2000",
-                        "shuffle_partitions": "8",
-                        "trigger_interval": "10 seconds",
-                        "load_profile": "A_mid",
-                        "rows_per_sec_avg": "100.0",
-                        "source_to_emit_p95_ms_max": "50.0",
-                        "e2e_p95_ms_max": "50.0",
-                        "watermark_delay_sec": "0",
-                        "metric_warnings": "driver_cpu_percent_unavailable_without_psutil",
-                        "driver_cpu_percent_avg": "10.0",
-                        "driver_rss_mb_avg": "256.0",
-                        "executor_mem_util_avg": "0.2",
-                    }
-                ],
-            )
-            self._write_csv(
-                layer_b,
-                [
-                    "status",
-                    "model",
-                    "feature_set",
-                    "load_profile",
-                    "rows",
-                    "source_to_emit_p95_ms",
-                    "ingest_to_emit_p95_ms",
-                    "e2e_p95_ms",
-                    "proc_p95_ms",
-                    "watermark_delay_sec",
-                    "metric_warnings",
-                    "driver_cpu_percent",
-                    "driver_rss_mb",
-                    "executor_mem_util_avg",
-                ],
-                [
-                    {
-                        "status": "ok",
-                        "model": "logistic_regression",
-                        "feature_set": "full",
-                        "load_profile": "logistic_regression:full",
-                        "rows": "1000",
-                        "source_to_emit_p95_ms": "20.0",
-                        "ingest_to_emit_p95_ms": "5.0",
-                        "e2e_p95_ms": "20.0",
-                        "proc_p95_ms": "5.0",
-                        "watermark_delay_sec": "0",
-                        "metric_warnings": "driver_cpu_percent_unavailable_without_psutil",
-                        "driver_cpu_percent": "12.0",
-                        "driver_rss_mb": "128.0",
-                        "executor_mem_util_avg": "0.1",
-                    }
-                ],
-            )
-            self._write_csv(
-                layer_c,
-                ["status", "scenario", "recovery_seconds", "rows_per_sec_after_fault", "proc_p95_ms_after_fault", "e2e_p95_ms_after_fault"],
-                [
-                    {
-                        "status": "ok",
-                        "scenario": "kafka_restart",
-                        "recovery_seconds": "12.0",
-                        "rows_per_sec_after_fault": "80.0",
-                        "proc_p95_ms_after_fault": "9.0",
-                        "e2e_p95_ms_after_fault": "30.0",
-                    }
-                ],
-            )
-
-            result = _run_script(
-                [
-                    "scripts/streaming/official/build_streaming_report.py",
-                    "--layer-a",
-                    str(layer_a),
-                    "--layer-b",
-                    str(layer_b),
-                    "--layer-c",
-                    str(layer_c),
-                    "--out-md",
-                    str(out_md),
-                    "--out-json",
-                    str(out_json),
-                ]
-            )
-
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertTrue(out_md.exists())
-            self.assertTrue(out_json.exists())
-            self.assertIn("Saved report markdown:", result.stdout)
-
-            report_payload = json.loads(out_json.read_text(encoding="utf-8"))
-            self.assertEqual(report_payload["layer_a"]["best"]["profile"], "A_mid")
-            self.assertEqual(report_payload["layer_b"]["best"]["model"], "logistic_regression")
-            self.assertEqual(report_payload["layer_c"]["worst_recovery_seconds"], 12.0)
-            self.assertEqual(report_payload["methodology"]["boundary_mode"], "sut_metrics_only")
-            self.assertTrue(report_payload["warnings"])
-            self.assertEqual(report_payload["layer_a"]["best"]["source_to_emit_p95_ms_p95"], 50.0)
-            self.assertEqual(report_payload["layer_b"]["best"]["source_to_emit_p95_ms_p95"], 20.0)
-            self.assertEqual(
-                report_payload["methodology"]["official_evaluation"]["source_of_truth"],
-                "matrix_summaries_derived_from_ids_metrics",
-            )
-
-            markdown = out_md.read_text(encoding="utf-8")
-            self.assertIn("# Online Evaluation Report", markdown)
-            self.assertIn("## Methodology", markdown)
-            self.assertIn("Layer A (System Knobs)", markdown)
-            self.assertIn("matrix runners currently aggregate SUT-emitted `ids.metrics`", markdown)
-            self.assertIn("late_event_ratio was collected with watermark_delay_sec=0", markdown)
-            self.assertIn("source_to_emit_p95_ms_p95", markdown)
-            self.assertIn("Probe warning observed in metrics: driver_cpu_percent_unavailable_without_psutil", markdown)
-            self.assertTrue(
-                any("compatibility alias" in warning for warning in report_payload["warnings"]),
-                msg=report_payload["warnings"],
-            )
 
     @staticmethod
     def _write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) -> None:

@@ -17,7 +17,7 @@ Use these roles consistently:
   - runs the system under test (SUT)
   - reads replayed Kafka traffic
   - emits predictions and debug telemetry
-- matrix summaries and `build_streaming_report.py`
+- matrix summaries
   - produce the official evaluation outputs
   - current official summary path is derived from `ids.metrics`
 - `observability/export_prometheus_summary.py`, Prometheus, and Grafana
@@ -55,7 +55,6 @@ The official evaluation flow is:
 1. Replay traffic into Kafka.
 2. Run the SUT streaming scorer.
 3. Collect matrix summary CSVs.
-4. Build the consolidated report.
 
 
 Prometheus and Grafana are outside this flow. They support live telemetry only.
@@ -82,10 +81,7 @@ Prometheus and Grafana are outside this flow. They support live telemetry only.
   - evaluate detection quality under load
 - `benchmark/run_benchmark_matrix.py`
   - run benchmark matrix scenarios
-- `build_streaming_report.py`
-  - aggregate summaries into the final report JSON/markdown
-- `read_metrics_for_run.py`
-  - inspect debug telemetry for a specific run
+
 - `observability/export_prometheus_summary.py`
   - expose live runtime telemetry to Prometheus
 
@@ -133,12 +129,6 @@ Run a matrix directly:
 docker compose exec -T ids-dev python scripts/streaming/official/run_layer_a_matrix.py --config configs/streaming/streaming.yaml
 ```
 
-Build the official report:
-
-```powershell
-docker compose exec -T ids-dev python scripts/streaming/official/build_streaming_report.py --layer-a artifacts/streaming/evaluation/layer_a_summary.csv --layer-b artifacts/streaming/evaluation/layer_b_summary.csv --layer-c artifacts/streaming/evaluation/layer_c_summary.csv
-```
-
 Expose live runtime telemetry:
 
 ```powershell
@@ -161,7 +151,7 @@ Make implementation changes in `src/ids_platform/streaming`:
 - replay behavior: `replay/`
 - shared config/artifact helpers: `core/`
 - scenario logic: `evaluation/matrices/`
-- report generation: `evaluation/reporting/`
+
 - orchestration and profiles: `evaluation/orchestration/`
 - benchmark path: `benchmark/`
 - telemetry exporter: `observability/`

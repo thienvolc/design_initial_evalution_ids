@@ -21,10 +21,7 @@ It is a single-repo system with script entrypoints, shared library modules under
   - Spark Structured Streaming job that consumes Kafka, scores records, and emits predictions plus debug telemetry
 - evaluation matrices
   - orchestrate repeatable experiments across Layer A, Layer B, Layer C, watermark, and load-quality scenarios
-- reporting
-  - aggregates summary CSVs into the official report JSON and markdown
-- evaluation UI
-  - Streamlit dashboard for completed experiment results
+
 - observability
   - Prometheus exporter, Prometheus, and Grafana for live runtime telemetry
 
@@ -36,10 +33,7 @@ Use this split consistently:
   - `run_structured_streaming.py`
   - input: replayed Kafka traffic
   - output: predictions parquet/Kafka plus debug telemetry on `ids.metrics`
-- evaluation system
   - matrix runners aggregating `ids.metrics` into summary CSVs
-  - consolidated report JSON/markdown
-  - Streamlit post-run dashboard
 
 Prometheus and Grafana are not part of the official evaluation pipeline. They support live monitoring and debugging only.
 
@@ -62,14 +56,6 @@ matrix runners
   -> collect ids.metrics-derived summaries
   -> write summary CSVs
 
-build_streaming_report.py
-  -> read summary CSVs
-  -> write report JSON + markdown
-
-Streamlit
-  -> read summary CSVs and consolidated reports
-  -> present official evaluation results
-
 Prometheus exporter
   -> read ids.metrics
   -> expose live runtime telemetry to Prometheus/Grafana
@@ -84,4 +70,4 @@ Prometheus exporter
 - orchestration by subprocess
   - matrix and profile runners launch lower-level scripts rather than embedding all logic in one process
 - separation by responsibility
-  - runtime, replay, matrices, orchestration, reporting, metrics, and UI are split into separate modules
+  - runtime, replay, matrices, orchestration, metrics, and observability are split into separate modules
