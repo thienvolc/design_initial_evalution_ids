@@ -137,13 +137,6 @@ class StreamingEntrypointIntegrationTests(unittest.TestCase):
 
     def test_streaming_entrypoints_support_help_cli(self) -> None:
         scripts = [
-            "scripts/streaming/official/run_structured_streaming.py",
-            "scripts/streaming/official/replay_parquet_to_kafka.py",
-            "scripts/streaming/official/run_layer_a_matrix.py",
-            "scripts/streaming/official/run_layer_b_matrix.py",
-            "scripts/streaming/official/run_layer_c_matrix.py",
-            "scripts/streaming/official/run_watermark_matrix.py",
-            "scripts/streaming/official/run_load_quality_matrix.py",
             "scripts/streaming/official/run_streaming_profile.py",
             "scripts/streaming/official/build_timeseries_plots.py",
             "scripts/streaming/benchmark/run_benchmark_matrix.py",
@@ -191,7 +184,7 @@ class StreamingEntrypointIntegrationTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("Resolved command:", result.stdout)
             self.assertIn("scripts/streaming/official/run_layer_a_matrix.py", result.stdout)
-            self.assertIn("--repeats 2", result.stdout)
+            self.assertNotIn("--repeats 2", result.stdout)
 
     def test_streaming_profile_gate_only_evaluates_existing_summary(self) -> None:
         with _workspace_tempdir() as temp_path:

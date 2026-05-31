@@ -6,12 +6,7 @@ from ids_platform.streaming.evaluation.matrices.common import annotate_sut_debug
 
 
 def _log_phase(event: str, **fields) -> None:
-    parts = [f"[phase] matrix=layer_c event={event}"]
-    for key, value in fields.items():
-        if value is None:
-            continue
-        parts.append(f"{key}={value}")
-    print(" ".join(parts), flush=True)
+    return None
 
 
 def _next_run_tag(*, index: int, scenario: str) -> str:

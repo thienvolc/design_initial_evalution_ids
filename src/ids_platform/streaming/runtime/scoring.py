@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, cast
 
 import pandas as pd
@@ -42,62 +41,21 @@ def _score_frame(*, model_path: str, feature_columns: list[str], fill_values: di
 
 def make_score_udf(model_path: str, feature_columns: list[str], fill_values: dict[str, float]):
     from pyspark.sql.types import DoubleType
+    from pyspark.sql.functions import pandas_udf
 
-    try:
-        from pyspark.sql.functions import pandas_udf
-
-        @pandas_udf(DoubleType())
-        def _score_udf(*cols: pd.Series) -> pd.Series:
-            frame = pd.concat(cols, axis=1)
-            return pd.Series(
-                _score_frame(
-                    model_path=model_path,
-                    feature_columns=feature_columns,
-                    fill_values=fill_values,
-                    frame=frame,
-                )
-            )
-
-        return _score_udf
-    except Exception:
-        from pyspark.sql.functions import udf
-
-        @udf(DoubleType())
-        def _score_udf(*values) -> float:
-            frame = pd.DataFrame([list(values)], columns=feature_columns)
-            scores = _score_frame(
+    @pandas_udf(DoubleType())
+    def _score_udf(*cols: pd.Series) -> pd.Series:
+        frame = pd.concat(cols, axis=1)
+        return pd.Series(
+            _score_frame(
                 model_path=model_path,
                 feature_columns=feature_columns,
                 fill_values=fill_values,
                 frame=frame,
             )
-            return float(scores[0]) if len(scores) else 0.0
-
-        return _score_udf
-
-
-def prewarm_score_udf_model(
-    spark,
-    *,
-    score_udf,
-    feature_columns: list[str],
-    fill_values: dict[str, float],
-) -> float:
-    from pyspark.sql import functions as F
-
-    if not feature_columns:
-        return 0.0
-
-    seed_row = {column_name: float(fill_values.get(column_name, 0.0)) for column_name in feature_columns}
-    warmup_df = spark.createDataFrame([seed_row])
-    started = time.perf_counter()
-    (
-        warmup_df.select(
-            score_udf(*[F.col(feature_name) for feature_name in feature_columns]).alias("prediction_score")
         )
-        .collect()
-    )
-    return (time.perf_counter() - started) * 1000.0
+
+    return _score_udf
 
 
 def add_prediction_columns(

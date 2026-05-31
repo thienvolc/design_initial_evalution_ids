@@ -3,6 +3,9 @@
 .env
 docs/_archive
 artifacts/streaming/**
+*.rar
+*.zip
+*.7z
 
 # Ignore all parquet & csv files in data folder
 data/**/*.parquet

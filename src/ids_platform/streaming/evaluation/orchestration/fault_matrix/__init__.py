@@ -48,15 +48,25 @@ from ids_platform.streaming.evaluation.orchestration.fault_matrix.support import
     scenario_row_template,
     script_command as support_script_command,
 )
-from ids_platform.streaming.replay.config import parse_rate_schedule
-from ids_platform.streaming.runtime.control import write_shutdown_request
+
+
+def _parse_rate_schedule(raw: str, *, error_message: str) -> None:
+    try:
+        for raw_step in str(raw or "").split(","):
+            if not raw_step.strip():
+                continue
+            rows_per_sec, duration_sec = raw_step.split(":", 1)
+            float(rows_per_sec)
+            float(duration_sec)
+    except Exception as exc:
+        raise ValueError(error_message) from exc
 
 
 def normalize_rate_schedule(raw: str) -> str:
     text = (raw or "").strip()
     if not text:
         return ""
-    parse_rate_schedule(text, error_message="warmup rate schedule must be rps:seconds,rps:seconds")
+    _parse_rate_schedule(text, error_message="warmup rate schedule must be rps:seconds,rps:seconds")
     return text
 
 
@@ -90,9 +100,7 @@ def build_stream_command(
     feature_set: str,
     run_tag: str,
     load_profile: str,
-    run_seconds: int,
     reset_checkpoint: bool,
-    stop_on_input_sentinel: bool = False,
     execution_mode: str = "host",
     python_executable: str = "python",
 ) -> list[str]:
@@ -102,9 +110,7 @@ def build_stream_command(
         feature_set=feature_set,
         run_tag=run_tag,
         load_profile=load_profile,
-        run_seconds=run_seconds,
         reset_checkpoint=reset_checkpoint,
-        stop_on_input_sentinel=stop_on_input_sentinel,
         execution_mode=execution_mode,
         python_executable=python_executable,
     )
@@ -117,9 +123,7 @@ def start_stream_process(
     feature_set: str,
     run_tag: str,
     load_profile: str,
-    run_seconds: int,
     reset_checkpoint: bool,
-    stop_on_input_sentinel: bool = False,
     execution_mode: str = "host",
     python_executable: str = "python",
     bootstrap_servers: str = "",
@@ -130,9 +134,7 @@ def start_stream_process(
         feature_set=feature_set,
         run_tag=run_tag,
         load_profile=load_profile,
-        run_seconds=run_seconds,
         reset_checkpoint=reset_checkpoint,
-        stop_on_input_sentinel=stop_on_input_sentinel,
         execution_mode=execution_mode,
         python_executable=python_executable,
         bootstrap_servers=bootstrap_servers,
@@ -213,8 +215,6 @@ def wait_for_stream_shutdown(
 def stop_stream_process(process) -> None:
     shutdown_stop_stream_process(
         process,
-        write_shutdown_request_fn=write_shutdown_request,
-        time_module=time,
         wait_for_stream_shutdown_fn=wait_for_stream_shutdown,
         cleanup_stream_processes_fn=cleanup_stream_processes,
         wait_for_process_exit_fn=wait_for_process_exit,

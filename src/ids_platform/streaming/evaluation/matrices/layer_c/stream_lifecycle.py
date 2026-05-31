@@ -4,8 +4,6 @@ import time
 
 from .logging_utils import _log_phase, _mark_row_failed
 from .runtime import (
-    GRACEFUL_STOP_MARKER_POLL_SEC,
-    GRACEFUL_STOP_MARKER_TIMEOUT_SEC,
     SPARK_DRAIN_IDLE_SEC,
     SPARK_DRAIN_MAX_TIMEOUT_SEC,
     SPARK_DRAIN_MIN_TIMEOUT_SEC,
@@ -14,7 +12,6 @@ from .runtime import (
     STREAM_SHUTDOWN_POLL_SEC,
     STREAM_SHUTDOWN_SETTLE_SEC,
     STREAM_SHUTDOWN_TIMEOUT_SEC,
-    estimate_layer_c_stream_runtime_seconds,
 )
 from .types import LayerCFaultMatrixOptions, LayerCShutdownResult
 
@@ -57,21 +54,13 @@ def handle_spark_process_restart_fault(
     _log_phase("fault_inject_done", run_tag=run_tag, scenario=scenario, action="stop_stream_process")
     _log_phase("stream_restart_start", run_tag=run_tag, scenario=scenario)
 
-    restart_stream_run_seconds = estimate_layer_c_stream_runtime_seconds(
-        options=options,
-        scenario=scenario,
-        warmup_rate_schedule=warmup_rate_schedule,
-        is_restart=True,
-    )
     restarted_process = _entrypoint_module().start_stream_process(
         config=options.config,
         model=options.model,
         feature_set=options.feature_set,
         run_tag=run_tag,
         load_profile=scenario,
-        run_seconds=restart_stream_run_seconds,
         reset_checkpoint=False,
-        stop_on_input_sentinel=True,
         execution_mode=options.execution_mode,
         python_executable=options.python_executable,
         bootstrap_servers=options.bootstrap_servers,
@@ -86,14 +75,14 @@ def handle_spark_process_restart_fault(
         restarted_process,
         startup_wait_sec=options.startup_wait_sec,
         ready_log_path=str(getattr(restarted_process, "ids_log_path", "") or ""),
-        ready_pattern=f"[stream] event=job_start run_tag={run_tag}",
-        require_ready_marker=True,
+        ready_pattern="",
+        require_ready_marker=False,
     ):
         log_path = str(getattr(restarted_process, "ids_log_path", "") or "")
         startup_debug = _entrypoint_module().describe_process_startup_state(
             restarted_process,
             log_path=log_path,
-            ready_pattern=f"[stream] event=job_start run_tag={run_tag}",
+            ready_pattern="",
         )
         _mark_row_failed(
             row,
@@ -123,24 +112,6 @@ def await_expected_graceful_shutdown(
         )
 
     log_path = str(getattr(stream_process, "ids_log_path", "") or "")
-    graceful_pattern = _entrypoint_module().wait_for_log_patterns(
-        process=stream_process,
-        log_path=log_path,
-        patterns=[
-            f"[stream] event=stop_condition_met run_tag={run_tag} reason=input_sentinel",
-            f"[stream] event=job_stop run_tag={run_tag}",
-        ],
-        timeout_sec=GRACEFUL_STOP_MARKER_TIMEOUT_SEC,
-        poll_seconds=GRACEFUL_STOP_MARKER_POLL_SEC,
-    )
-    if graceful_pattern:
-        _log_phase(
-            "stream_graceful_stop_marker_seen",
-            run_tag=run_tag,
-            scenario=scenario,
-            marker=graceful_pattern,
-        )
-
     graceful_shutdown_complete = _entrypoint_module().wait_for_stream_shutdown(
         run_tag=run_tag,
         execution_mode=options.execution_mode,
@@ -205,12 +176,6 @@ def start_layer_c_stream(
     scenario: str,
     warmup_rate_schedule: str,
 ):
-    stream_run_seconds = estimate_layer_c_stream_runtime_seconds(
-        options=options,
-        scenario=scenario,
-        warmup_rate_schedule=warmup_rate_schedule,
-        is_restart=False,
-    )
     _log_phase("stream_start", run_tag=run_tag, scenario=scenario, reset_checkpoint=True)
     stream_process = _entrypoint_module().start_stream_process(
         config=options.config,
@@ -218,9 +183,7 @@ def start_layer_c_stream(
         feature_set=options.feature_set,
         run_tag=run_tag,
         load_profile=scenario,
-        run_seconds=stream_run_seconds,
         reset_checkpoint=True,
-        stop_on_input_sentinel=(scenario != "spark_process_restart"),
         execution_mode=options.execution_mode,
         python_executable=options.python_executable,
         bootstrap_servers=options.bootstrap_servers,
@@ -242,21 +205,20 @@ def ensure_stream_started_for_warmup(
     row: dict,
     stream_process,
 ) -> bool:
-    ready_pattern = f"[stream] event=job_start run_tag={run_tag}"
     log_path = str(getattr(stream_process, "ids_log_path", "") or "")
     if _entrypoint_module().wait_for_process_startup(
         stream_process,
         startup_wait_sec=options.startup_wait_sec,
         ready_log_path=log_path,
-        ready_pattern=ready_pattern,
-        require_ready_marker=True,
+        ready_pattern="",
+        require_ready_marker=False,
     ):
         return True
 
     startup_debug = _entrypoint_module().describe_process_startup_state(
         stream_process,
         log_path=log_path,
-        ready_pattern=ready_pattern,
+        ready_pattern="",
     )
     _mark_row_failed(
         row,

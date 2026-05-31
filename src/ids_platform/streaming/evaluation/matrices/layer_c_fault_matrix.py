@@ -83,7 +83,6 @@ def _load_host_kafka_runtime_targets(*, config_path: str, bootstrap_override: st
     )
     return bootstrap_servers, [
         str(kafka_cfg.get("input_topic", "ids.raw.flows")),
-        str(kafka_cfg.get("output_topic", "ids.predictions.binary")),
         str(kafka_cfg.get("metrics_topic", "ids.metrics")),
     ]
 

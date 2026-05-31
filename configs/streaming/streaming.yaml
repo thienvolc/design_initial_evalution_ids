@@ -14,7 +14,6 @@ runtime:
 kafka:
   bootstrap_servers: kafka:29092
   input_topic: ids.raw.flows
-  output_topic: ids.predictions.binary
   metrics_topic: ids.metrics
   starting_offsets: earliest
   fail_on_data_loss: false

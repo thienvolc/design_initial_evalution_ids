@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from ids_platform.streaming.replay.config import parse_rate_schedule
-
 from .types import LayerCFaultMatrixOptions
 
 
@@ -30,6 +28,16 @@ STREAM_SHUTDOWN_SETTLE_SEC = 2.0
 STREAM_EXIT_WAIT_TIMEOUT_SEC = 30
 
 
+def _parse_rate_schedule(rate_schedule: str) -> list[tuple[float, float]]:
+    schedule = []
+    for raw_step in str(rate_schedule or "").split(","):
+        if not raw_step.strip():
+            continue
+        rows_per_sec, duration_sec = raw_step.split(":", 1)
+        schedule.append((float(rows_per_sec), float(duration_sec)))
+    return schedule
+
+
 def validate_runtime_metric(payload: dict | None) -> tuple[bool, str]:
     if not isinstance(payload, dict):
         return False, "metric payload missing"
@@ -50,7 +58,7 @@ def estimate_replay_seconds_from_schedule(*, rows: int, rate_schedule: str) -> f
     if remaining_rows <= 0:
         return 0.0
     total_seconds = 0.0
-    for rows_per_second, duration_seconds in parse_rate_schedule(rate_schedule):
+    for rows_per_second, duration_seconds in _parse_rate_schedule(rate_schedule):
         segment_capacity = rows_per_second * duration_seconds
         if remaining_rows <= segment_capacity:
             total_seconds += remaining_rows / rows_per_second

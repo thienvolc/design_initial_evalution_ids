@@ -15,7 +15,6 @@ from ids_platform.streaming.evaluation.orchestration.profile_runner_support impo
     append_arg as _support_append_arg,
     build_command as _support_build_command,
     deep_merge as _support_deep_merge,
-    format_layer_a_profile as _support_format_layer_a_profile,
     include_profile_by_filters as _support_include_profile_by_filters,
     normalize_args_for_script as _support_normalize_args_for_script,
     profile_mode as _support_profile_mode,
@@ -54,10 +53,6 @@ def to_flag(name: str) -> str:
 
 def append_arg(command: list[str], key: str, value) -> None:
     _support_append_arg(command, key, value)
-
-
-def format_layer_a_profile(value: dict) -> str:
-    return _support_format_layer_a_profile(value)
 
 
 def normalize_args_for_script(script: str, arguments: dict) -> dict:

@@ -40,7 +40,7 @@ class ProfileRunnerTests(unittest.TestCase):
         self.assertEqual(resolved["args"]["repeats"], 3)
         self.assertNotIn("extends", resolved)
 
-    def test_build_command_formats_layer_a_profile_objects(self) -> None:
+    def test_build_command_omits_args_for_config_driven_layer_a(self) -> None:
         profile = {
             "script": "scripts/streaming/official/run_layer_a_matrix.py",
             "runtime": "host",
@@ -57,8 +57,7 @@ class ProfileRunnerTests(unittest.TestCase):
         }
 
         command = build_command(profile, "python")
-        self.assertEqual(command[0:2], ["python", "scripts/streaming/official/run_layer_a_matrix.py"])
-        self.assertIn("A_low:500:4:10 seconds", command)
+        self.assertEqual(command, ["python", "scripts/streaming/official/run_layer_a_matrix.py"])
 
     def test_build_command_uses_noninteractive_docker_exec(self) -> None:
         profile = {

@@ -59,34 +59,22 @@ def append_arg(command: list[str], key: str, value) -> None:
     command.extend([flag, str(value)])
 
 
-def format_layer_a_profile(value: dict) -> str:
-    if not isinstance(value, dict):
-        raise ValueError("Layer A profile entries must be mappings")
-
-    profile_name = str(value.get("name", "")).strip()
-    max_offsets = value.get("max_offsets_per_trigger")
-    shuffle_partitions = value.get("shuffle_partitions")
-    trigger_interval = str(value.get("trigger_interval", "")).strip()
-
-    if not profile_name:
-        raise ValueError("Layer A profile is missing 'name'")
-    if max_offsets is None or shuffle_partitions is None:
-        raise ValueError("Layer A profile requires max_offsets_per_trigger and shuffle_partitions")
-
-    base = f"{profile_name}:{int(max_offsets)}:{int(shuffle_partitions)}"
-    if trigger_interval:
-        return f"{base}:{trigger_interval}"
-    return base
+CONFIG_DRIVEN_SCRIPTS = {
+    "run_layer_a_matrix.py",
+    "run_layer_b_matrix.py",
+    "run_layer_c_matrix.py",
+    "run_load_quality_matrix.py",
+    "run_watermark_matrix.py",
+    "replay_parquet_to_kafka.py",
+    "run_structured_streaming.py",
+}
 
 
 def normalize_args_for_script(script: str, arguments: dict) -> dict:
-    normalized = copy.deepcopy(arguments)
     script_name = Path(script).name.lower()
-    if script_name == "run_layer_a_matrix.py":
-        profiles = normalized.get("profiles")
-        if isinstance(profiles, list) and profiles and isinstance(profiles[0], dict):
-            normalized["profiles"] = [format_layer_a_profile(item) for item in profiles]
-    return normalized
+    if script_name in CONFIG_DRIVEN_SCRIPTS:
+        return {}
+    return copy.deepcopy(arguments)
 
 
 def resolve_allowed_script_path(script: str, *, resolve_project_path, project_root, allowed_script_roots: tuple[Path, ...]) -> str:

@@ -287,5 +287,4 @@ def run_layer_c_fault_matrix(options: LayerCFaultMatrixOptions) -> int:
 
     summary_path = resolve_project_path(options.summary_csv)
     write_summary_rows(summary_path, summary_rows)
-    print(f"Saved Layer C summary: {summary_path}", flush=True)
     return 0

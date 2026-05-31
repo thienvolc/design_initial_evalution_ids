@@ -20,11 +20,10 @@ def persist_summary_rows(
     *,
     summary_csv: str,
     rows: list[dict],
-    resolve_project_path_fn,
     write_summary_rows_fn,
     label: str,
+    resolve_project_path_fn=None,
 ) -> Path:
-    summary_path = resolve_project_path_fn(summary_csv)
+    summary_path = resolve_project_path_fn(summary_csv) if resolve_project_path_fn is not None else Path(summary_csv)
     write_summary_rows_fn(summary_path, rows)
-    print(f"Saved {label} summary: {summary_path}", flush=True)
     return summary_path

@@ -1,155 +1,126 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 
-def parse_rate_schedule(
-    raw: str,
-    *,
-    error_message: str = "rate schedule must be rps:seconds,rps:seconds",
-) -> list[tuple[float, float]]:
-    text = (raw or "").strip()
-    if not text:
-        return []
+import pyarrow as pa
+import pyarrow.dataset as ds
 
-    schedule: list[tuple[float, float]] = []
-    for token in text.split(","):
-        piece = token.strip()
-        if not piece:
-            continue
-        parts = [item.strip() for item in piece.split(":")]
-        if len(parts) != 2:
-            raise ValueError(error_message)
-        rows_per_second = float(parts[0])
-        duration_seconds = float(parts[1])
-        if rows_per_second <= 0 or duration_seconds <= 0:
-            raise ValueError("rate schedule values must be > 0")
-        schedule.append((rows_per_second, duration_seconds))
-    return schedule
+from ids_platform.common.paths import resolve_project_path
 
 
-def schedule_total_seconds(schedule: list[tuple[float, float]]) -> float:
-    return sum(duration_seconds for _, duration_seconds in schedule)
+@dataclass(frozen=True)
+class RateStep:
+    rows_per_sec: float
+    duration_sec: float
 
 
-def _parse_trigger_interval_seconds(trigger_interval: str) -> float | None:
-    text = (trigger_interval or "").strip().lower()
-    if not text:
-        return None
+@dataclass(frozen=True, slots=True)
+class ReplayRatePlan:
+    rows_per_sec: float
+    schedule: tuple[RateStep, ...]
 
-    parts = text.split()
-    if len(parts) != 2:
-        return None
+    def total_seconds(self) -> float:
+        return sum(step.duration_sec for step in self.schedule)
 
-    try:
-        value = float(parts[0])
-    except ValueError:
-        return None
+    def expected_elapsed_for_rows(self, sent_rows: int) -> float:
+        if sent_rows <= 0:
+            return 0.0
 
-    unit = parts[1]
-    if value <= 0:
-        return None
-    if unit in {"s", "sec", "secs", "second", "seconds"}:
-        return value
-    if unit in {"m", "min", "mins", "minute", "minutes"}:
-        return value * 60.0
-    return None
+        if self.schedule:
+            return self._expected_elapsed_by_schedule(sent_rows)
 
+        if self.rows_per_sec == 0:
+            return 0.0
 
-def _estimate_stream_capacity_runtime_seconds(
-    *,
-    max_rows: int,
-    max_offsets_per_trigger: int,
-    trigger_interval: str,
-) -> float | None:
-    trigger_seconds = _parse_trigger_interval_seconds(trigger_interval)
-    if max_rows <= 0 or max_offsets_per_trigger <= 0 or trigger_seconds is None:
-        return None
-    rows_per_second = max_offsets_per_trigger / max(trigger_seconds, 1e-9)
-    if rows_per_second <= 0:
-        return None
-    return max_rows / rows_per_second
+        return sent_rows / self.rows_per_sec
 
+    def is_throttled(self) -> bool:
+        return bool(self.schedule) or self.rows_per_sec > 0
 
-def estimate_stream_runtime(
-    *,
-    max_rows: int,
-    trace_rows_per_sec: float,
-    trace_schedule: list[tuple[float, float]],
-    override_seconds: int,
-    max_offsets_per_trigger: int = 0,
-    trigger_interval: str = "",
-    schedule_buffer_seconds: int = 180,
-    default_seconds: int = 300,
-) -> int:
-    if override_seconds > 0:
-        return max(int(override_seconds), 1)
+    def _expected_elapsed_by_schedule(self, sent_rows: int) -> float:
+        remaining_rows = float(sent_rows)
+        elapsed_seconds = 0.0
+        last_rows_per_sec = 0.0
 
-    replay_runtime_seconds: float | None = None
-    if trace_schedule:
-        replay_runtime_seconds = schedule_total_seconds(trace_schedule)
-    elif trace_rows_per_sec > 0:
-        replay_runtime_seconds = max_rows / trace_rows_per_sec
+        for step in self.schedule:
+            if step.rows_per_sec == 0:
+                elapsed_seconds += step.duration_sec
+                continue
 
-    stream_runtime_seconds = _estimate_stream_capacity_runtime_seconds(
-        max_rows=max_rows,
-        max_offsets_per_trigger=max_offsets_per_trigger,
-        trigger_interval=trigger_interval,
-    )
+            last_rows_per_sec = step.rows_per_sec
 
-    candidate_seconds = [value for value in (replay_runtime_seconds, stream_runtime_seconds) if value is not None]
-    if candidate_seconds:
-        return int(max(candidate_seconds) + schedule_buffer_seconds)
-    return default_seconds
+            step_capacity = step.rows_per_sec * step.duration_sec
+            rows_sent = min(remaining_rows, step_capacity)
+
+            elapsed_seconds += rows_sent / step.rows_per_sec
+            remaining_rows -= rows_sent
+
+            if remaining_rows <= 0:
+                return elapsed_seconds
+
+        if last_rows_per_sec == 0:
+            return elapsed_seconds
+
+        return elapsed_seconds + remaining_rows / last_rows_per_sec
 
 
-def build_replay_command(
-    *,
-    python_exe: str,
-    config: str,
-    run_tag: str,
-    max_rows: int,
-    batch_size: int,
-    rows_per_sec: float = 0.0,
-    rate_schedule: str = "",
-    input_parquet: str | None = None,
-    trace_order_column: str | None = None,
-    force_sort_input: bool = False,
-    reorder_window_size: int | None = None,
-    late_event_ratio: float | None = None,
-    late_event_max_sec: float | None = None,
-    random_seed: int | None = None,
-) -> list[str]:
-    command = [
+@dataclass(frozen=True)
+class ReplaySource:
+    table: pa.Table
+    batch_size: int
+
+
+@dataclass(frozen=True)
+class ReplayRuntimeConfig:
+    run_tag: str
+    bootstrap_servers: str
+    topic: str
+
+
+@dataclass(frozen=True)
+class ReplayTimingConfig:
+    random_seed: int
+    trace_order_column: str
+    reorder_window_size: int
+    late_event_ratio: float
+    late_event_max_sec: float
+
+
+@dataclass(frozen=True)
+class ReplayConfig:
+    source: ReplaySource
+    runtime: ReplayRuntimeConfig
+    rate: ReplayRatePlan
+    timing: ReplayTimingConfig
+
+
+@dataclass(frozen=True, slots=True)
+class ReplaySourceFactory:
+    dataset_path: Path = resolve_project_path("data/gold/splits/test.parquet")
+    batch_size: int = 5_000
+    row_limit: int | None = None
+
+    def create(self) -> ReplaySource:
+        dataset = ds.dataset(self.dataset_path, format="parquet")
+
+        table = dataset.to_table(columns=dataset.schema.names)
+        if "flow_id" not in table.column_names:
+            table = table.append_column(
+                "flow_id",
+                pa.array((f"flow-{index}" for index in range(table.num_rows))),
+            )
+        if "event_time" not in table.column_names:
+            table = table.append_column("event_time", table["timestamp"])
+
+        if self.row_limit is not None and int(self.row_limit) >= 0:
+            table = table.slice(0, int(self.row_limit))
+
+        return ReplaySource(table=table, batch_size=self.batch_size)
+
+
+def render_replay_command(*, python_exe: str) -> list[str]:
+    return [
         python_exe,
         "scripts/streaming/official/replay_parquet_to_kafka.py",
-        "--config",
-        config,
-        "--run-tag",
-        run_tag,
-        "--max-rows",
-        str(max_rows),
-        "--batch-size",
-        str(batch_size),
     ]
-
-    if input_parquet:
-        command.extend(["--input-parquet", input_parquet])
-    if trace_order_column:
-        command.extend(["--trace-order-column", trace_order_column])
-    if force_sort_input:
-        command.append("--force-sort-input")
-    if reorder_window_size is not None:
-        command.extend(["--reorder-window-size", str(reorder_window_size)])
-    if late_event_ratio is not None:
-        command.extend(["--late-event-ratio", str(late_event_ratio)])
-    if late_event_max_sec is not None:
-        command.extend(["--late-event-max-sec", str(late_event_max_sec)])
-    if random_seed is not None:
-        command.extend(["--random-seed", str(random_seed)])
-
-    if rate_schedule.strip():
-        command.extend(["--rate-schedule", rate_schedule.strip()])
-    elif rows_per_sec > 0:
-        command.extend(["--rows-per-sec", str(rows_per_sec)])
-
-    return command
-

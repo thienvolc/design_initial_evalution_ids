@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -10,62 +14,74 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from ids_platform.streaming.replay.config import (
-    build_replay_command,
-    estimate_stream_runtime,
-    parse_rate_schedule,
-    schedule_total_seconds,
+    RateStep,
+    render_replay_command,
+    ReplayRatePlan,
+    ReplaySourceFactory,
 )
 
 
 class ReplayConfigTests(unittest.TestCase):
-    def test_parse_rate_schedule_parses_multiple_steps(self) -> None:
-        schedule = parse_rate_schedule("100:10, 250:20")
-        self.assertEqual(schedule, [(100.0, 10.0), (250.0, 20.0)])
-
-    def test_parse_rate_schedule_rejects_invalid_shape(self) -> None:
-        with self.assertRaises(ValueError):
-            parse_rate_schedule("100")
-
     def test_schedule_total_seconds_sums_durations(self) -> None:
-        self.assertEqual(schedule_total_seconds([(100.0, 10.0), (250.0, 20.0)]), 30.0)
-
-    def test_estimate_stream_runtime_prefers_schedule_then_buffer(self) -> None:
-        runtime_seconds = estimate_stream_runtime(
-            max_rows=1000,
-            trace_rows_per_sec=0.0,
-            trace_schedule=[(100.0, 10.0), (250.0, 20.0)],
-            override_seconds=0,
-            schedule_buffer_seconds=15,
-            default_seconds=300,
+        plan = ReplayRatePlan(
+            rows_per_sec=0.0,
+            schedule=(
+                RateStep(rows_per_sec=100.0, duration_sec=10.0),
+                RateStep(rows_per_sec=250.0, duration_sec=20.0),
+            ),
         )
-        self.assertEqual(runtime_seconds, 45)
 
-    def test_build_replay_command_uses_rate_schedule_over_rows_per_sec(self) -> None:
-        command = build_replay_command(
-            python_exe="python",
-            config="configs/streaming/streaming.yaml",
-            run_tag="run-1",
-            max_rows=1000,
-            batch_size=200,
-            rows_per_sec=123.0,
-            rate_schedule="100:10",
-            input_parquet="data/test.parquet",
-            trace_order_column="event_time",
+        self.assertEqual(plan.total_seconds(), 30.0)
+
+    def test_rate_plan_estimates_constant_rate_elapsed(self) -> None:
+        plan = ReplayRatePlan(rows_per_sec=100.0, schedule=())
+
+        self.assertEqual(plan.expected_elapsed_for_rows(250), 2.5)
+
+    def test_rate_plan_estimates_schedule_elapsed(self) -> None:
+        plan = ReplayRatePlan(
+            rows_per_sec=0.0,
+            schedule=(
+                RateStep(rows_per_sec=100.0, duration_sec=2.0),
+                RateStep(rows_per_sec=50.0, duration_sec=10.0),
+            )
         )
-        self.assertIn("--rate-schedule", command)
-        self.assertNotIn("--rows-per-sec", command)
+
+        self.assertEqual(plan.expected_elapsed_for_rows(300), 4.0)
+
+    def test_render_replay_command_has_no_cli_flags(self) -> None:
+        command = render_replay_command(python_exe="python")
+
         self.assertEqual(command[0:2], ["python", "scripts/streaming/official/replay_parquet_to_kafka.py"])
+        self.assertEqual(len(command), 2)
 
-    def test_build_replay_command_includes_force_sort_flag_when_requested(self) -> None:
-        command = build_replay_command(
-            python_exe="python",
-            config="configs/streaming/streaming.yaml",
-            run_tag="run-1",
-            max_rows=1000,
-            batch_size=200,
-            force_sort_input=True,
-        )
-        self.assertIn("--force-sort-input", command)
+    def test_source_factory_can_limit_rows_and_add_required_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset_path = Path(tmp) / "trace.parquet"
+            pq.write_table(
+                pa.table(
+                    {
+                        "timestamp": [
+                            "2024-01-01T00:00:00Z",
+                            "2024-01-01T00:00:01Z",
+                            "2024-01-01T00:00:02Z",
+                        ],
+                        "feature_1": [1.0, 2.0, 3.0],
+                    }
+                ),
+                dataset_path,
+            )
+
+            source = ReplaySourceFactory(
+                dataset_path=dataset_path,
+                batch_size=2,
+                row_limit=2,
+            ).create()
+
+        self.assertEqual(source.table.num_rows, 2)
+        self.assertEqual(source.batch_size, 2)
+        self.assertIn("flow_id", source.table.column_names)
+        self.assertIn("event_time", source.table.column_names)
 
 
 if __name__ == "__main__":

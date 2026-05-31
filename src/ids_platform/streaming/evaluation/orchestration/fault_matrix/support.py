@@ -45,9 +45,7 @@ def build_stream_command(
     feature_set: str,
     run_tag: str,
     load_profile: str,
-    run_seconds: int,
     reset_checkpoint: bool,
-    stop_on_input_sentinel: bool = False,
     execution_mode: str = "host",
     python_executable: str = "python",
 ) -> list[str]:
@@ -55,29 +53,8 @@ def build_stream_command(
         execution_mode=execution_mode,
         python_executable=python_executable,
         script_path="scripts/streaming/official/run_structured_streaming.py",
-        script_args=[
-            "--config",
-            config,
-            "--model",
-            model,
-            "--feature-set",
-            feature_set,
-            "--run-tag",
-            run_tag,
-            "--load-profile",
-            load_profile,
-            "--input-run-tag",
-            run_tag,
-            "--override-starting-offsets",
-            "latest",
-            "--run-seconds",
-            str(run_seconds),
-        ],
+        script_args=[],
     )
-    if reset_checkpoint:
-        command.append("--reset-checkpoint")
-    if stop_on_input_sentinel:
-        command.append("--stop-on-input-sentinel")
     return command
 
 

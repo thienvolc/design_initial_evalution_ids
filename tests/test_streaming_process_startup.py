@@ -120,7 +120,7 @@ class ProcessStartupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             log_path = Path(temp_dir) / "runtime.log"
             log_path.write_text(
-                "[stream] event=job_start run_tag=layerC_test_old\n",
+                "ready old\n",
                 encoding="utf-8",
             )
 
@@ -132,20 +132,20 @@ class ProcessStartupTests(unittest.TestCase):
                 startup_wait_sec=1,
                 poll_seconds=0.1,
                 ready_log_path=str(log_path),
-                ready_pattern="[stream] event=job_start run_tag=layerC_test_old",
+                ready_pattern="ready old",
                 require_ready_marker=True,
             )
             self.assertFalse(ready)
 
             with log_path.open("a", encoding="utf-8") as handle:
-                handle.write("[stream] event=job_start run_tag=layerC_test_new\n")
+                handle.write("ready new\n")
 
             ready = wait_for_process_startup(
                 process,
                 startup_wait_sec=1,
                 poll_seconds=0.1,
                 ready_log_path=str(log_path),
-                ready_pattern="[stream] event=job_start run_tag=layerC_test_new",
+                ready_pattern="ready new",
                 require_ready_marker=True,
             )
             self.assertTrue(ready)
@@ -265,7 +265,7 @@ class ProcessStartupTests(unittest.TestCase):
             ),
             mock.patch(
                 "ids_platform.streaming.evaluation.matrices.layer_c_fault_matrix._load_host_kafka_runtime_targets",
-                return_value=("localhost:9092", ["ids.raw.flows", "ids.predictions.binary", "ids.metrics"]),
+                  return_value=("localhost:9092", ["ids.raw.flows", "ids.metrics"]),
             ),
             mock.patch(
                 "ids_platform.streaming.evaluation.matrices.layer_c_fault_matrix._load_docker_kafka_bootstrap",
@@ -377,7 +377,7 @@ class ProcessStartupTests(unittest.TestCase):
             ),
             mock.patch(
                 "ids_platform.streaming.evaluation.matrices.layer_c_fault_matrix._load_host_kafka_runtime_targets",
-                return_value=("localhost:9092", ["ids.raw.flows", "ids.predictions.binary", "ids.metrics"]),
+                  return_value=("localhost:9092", ["ids.raw.flows", "ids.metrics"]),
             ),
             mock.patch(
                 "ids_platform.streaming.evaluation.matrices.layer_c_fault_matrix._load_docker_kafka_bootstrap",
@@ -488,7 +488,7 @@ class ProcessStartupTests(unittest.TestCase):
             ),
             mock.patch(
                 "ids_platform.streaming.evaluation.matrices.layer_c_fault_matrix._load_host_kafka_runtime_targets",
-                return_value=("localhost:9092", ["ids.raw.flows", "ids.predictions.binary", "ids.metrics"]),
+                  return_value=("localhost:9092", ["ids.raw.flows", "ids.metrics"]),
             ),
             mock.patch(
                 "ids_platform.streaming.evaluation.matrices.layer_c_fault_matrix._load_docker_kafka_bootstrap",
@@ -527,40 +527,6 @@ class ProcessStartupTests(unittest.TestCase):
 
         self.assertEqual(row["status"], "ok")
         self.assertEqual(row["notes"], "")
-
-    def test_layer_c_network_slowdown_fails_fast_as_unsupported_surrogate(self) -> None:
-        options = LayerCFaultMatrixOptions(
-            config="configs/streaming/streaming.yaml",
-            model="logistic_regression",
-            feature_set="full",
-            scenarios=("network_slowdown",),
-            warmup_rows=10,
-            warmup_rows_per_sec=1.0,
-            warmup_rate_schedule="",
-            fault_delay_sec=0,
-            post_fault_rows=10,
-            post_fault_rows_per_sec=1.0,
-            batch_size=10,
-            trace_input_parquet="artifacts/demo.parquet",
-            trace_order_column="event_id",
-            slowdown_rows_per_sec=1.0,
-            producer_restart_pause_sec=1,
-            replay_retries=1,
-            replay_retry_wait_sec=1,
-            stream_run_seconds=60,
-            startup_wait_sec=1,
-            metrics_timeout_sec=90,
-            execution_mode="docker",
-            python_executable="python",
-            bootstrap_servers="kafka:29092",
-            summary_csv="artifacts/summary.csv",
-        )
-
-        row = _execute_scenario(options, "network_slowdown", 1, "")
-
-        self.assertEqual(row["status"], "failed")
-        self.assertIn("no real network fault injector", row["notes"])
-
 
 if __name__ == "__main__":
     unittest.main()

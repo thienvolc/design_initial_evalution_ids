@@ -1,4 +1,3 @@
-pyspark-stubs
 # Offline IDS Pipeline – CSE-CIC-IDS2018
 pandas==2.2.2
 numpy==1.26.4

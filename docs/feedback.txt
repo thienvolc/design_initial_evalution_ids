@@ -1,0 +1,30 @@
+1. Đóng góp khoa học gần như không tồn tại (Core Problem)
+
+"Structured evaluation pipeline" là đóng góp chính mà paper tự nhận. Thực ra đây chỉ là kết hợp những thứ đã có sẵn (Kafka + Spark Structured Streaming + replay traffic + metrics) rồi đo vài thứ. Không có kiến trúc mới, không có algorithm mới, không có insight kỹ thuật đáng kể.
+Hầu hết các công trình IDS streaming trước đây (Kumar 2025, Tun 2019, v.v.) cũng đã làm tương tự. Việc thêm "đo watermark + recovery + lag" không đủ để gọi là contribution đáng kể.
+Kết luận kiểu "hiệu suất phụ thuộc vào config, model, và load" là rõ ràng đến mức sáo rỗng. Ai cũng biết điều này.
+
+2. Experimental Design yếu
+
+Single node only: Đây là điểm chí mạng. Kafka + Spark được thiết kế cho distributed systems. Chạy local[1] với 1 executor trên laptop i5-1240P thì kết quả throughput ~2600 rps, latency vài giây chẳng nói lên được gì về tính khả thi thực tế. Đây không phải "initial evaluation for production readiness" như abstract gợi ý.
+CSE-CIC-IDS2018 replay: Dataset này đã bị chỉ trích nặng (Leevy & Khoshgoftaar 2020 — paper cũng cite). Việc replay file CSV có nhãn theo tốc độ nhân tạo càng làm giảm giá trị. Đây gần như là offline evaluation trá hình dưới vỏ streaming.
+Số lần lặp chỉ 3 runs cho hầu hết experiment. Thống kê mean ± stddev với n=3 thì độ tin cậy cực thấp.
+
+3. Kết quả nhiều phần vô giá trị hoặc dự đoán được trước
+
+Nhóm A (configs): A-high nhanh hơn A-low → hiển nhiên. Pass-through baseline cũng chỉ xác nhận điều ai cũng biết: model inference không phải bottleneck duy nhất.
+Nhóm B (models): Reduced features (R) fail thảm hại trong streaming (F1 gần 0), full features RF tốt. Điều này cho thấy feature engineering / preprocessing pipeline có vấn đề, chứ không phải insight sâu. Sau đó họ phải làm ablation bổ sung (Phụ lục A) mới thấy HMI-17 khá hơn — nghĩa là mô hình đóng gói ban đầu kém.
+Watermark: Kết quả inconclusive (không cải thiện rõ ràng). Phần này gần như vô ích.
+High load: Input > capacity → F1 drop xuống 0.71. Cũng là kết quả quá hiển nhiên.
+Recovery scenarios: Khởi động lại Spark job nhanh hơn Kafka broker nhưng state kém hơn — cũng là điều dự đoán được từ kiến thức cơ bản về Spark checkpointing.
+
+4. Các vấn đề khác
+
+Over-claiming trong abstract/intro: Nói về "giá trị thực tiễn", "đóng góp quy trình đo thống nhất", "bằng chứng vận hành ban đầu" nhưng thực tế chỉ là experiment trên laptop.
+Thiếu so sánh: Không benchmark với Flink, Kafka Streams, hay thậm chí Spark cũ (DStream). Không có baseline production-grade IDS streaming nào.
+Writing: Có nhiều phần lặp ý, bảng biểu dài dòng, một số phân tích hơi gượng ép (cố diễn giải kết quả hiển nhiên thành insight).
+
+Tóm tắt mức độ giá trị
+
+Đối với sinh viên học Big Data: Tốt. Làm pipeline thực tế, biết đo metrics, có GitHub → xứng đáng điểm cao môn học.
+Đối với cộng đồng nghiên cứu: Rất thấp. Hầu như không có gì mới để cite, không có insight đáng nhớ, experimental setup quá hạn chế.

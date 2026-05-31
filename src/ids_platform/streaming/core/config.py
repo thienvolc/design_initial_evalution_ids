@@ -61,7 +61,6 @@ class LatencyConfig:
 class KafkaConfig:
     bootstrap_servers: str
     input_topic: str
-    output_topic: str
     metrics_topic: str
     starting_offsets: str
     fail_on_data_loss: bool
@@ -150,7 +149,6 @@ def _build_kafka_config(raw_cfg: dict[str, Any]) -> KafkaConfig:
             str(kafka_cfg.get("bootstrap_servers", "localhost:9092"))
         ),
         input_topic=str(kafka_cfg.get("input_topic", "ids.raw.flows")),
-        output_topic=str(kafka_cfg.get("output_topic", "ids.predictions.binary")),
         metrics_topic=str(kafka_cfg.get("metrics_topic", "ids.metrics")),
         starting_offsets=str(kafka_cfg.get("starting_offsets", "earliest")),
         fail_on_data_loss=bool(kafka_cfg.get("fail_on_data_loss", False)),

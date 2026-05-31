@@ -93,9 +93,6 @@ class StreamingMetricsCommonTests(unittest.TestCase):
                     "event_time": {"late_event_ratio": 0.01},
                     "kafka": {"lag_records_total": 5},
                     "system": {"driver_rss_mb": 128.0, "executor_mem_util_avg": 0.25},
-                    "detection": {"labeled_rows": 100, "tp": 80, "tn": 10, "fp": 5, "fn": 5},
-                    "avg_prediction_score": 0.5,
-                    "attack_ratio": 0.85,
                 },
                 {
                     "run_tag": "demo",
@@ -119,16 +116,17 @@ class StreamingMetricsCommonTests(unittest.TestCase):
                 "load_profile": "profile_a",
                 "model_name": "logistic_regression",
                 "feature_set": "full",
-                "metric_warnings": ["driver_cpu_percent_unavailable_without_psutil"],
                 "rows": 100,
                 "rows_per_sec": 50.0,
-                "batch_wall_ms": 2000.0,
-                "latency_ms": {
-                    "source_to_ingest": {"p95": 10.0},
-                    "processing": {"p95": 20.0},
-                    "end_to_end": {"p95": 30.0},
-                    "event_lateness": {"p95": 5.0},
-                },
+                  "batch_wall_ms": 2000.0,
+                  "latency_ms": {
+                      "source_to_ingest": {"p95": 10.0},
+                      "processing": {"p95": 20.0},
+                      "ingest_to_emit": {"p95": 21.0},
+                      "end_to_end": {"p95": 30.0},
+                      "source_to_emit": {"p95": 31.0},
+                      "event_lateness": {"p95": 5.0},
+                  },
                 "event_time": {"late_event_ratio": 0.01},
                 "kafka": {"lag_records_total": 5, "lag_records_max_partition": 3},
                 "system": {
@@ -138,32 +136,18 @@ class StreamingMetricsCommonTests(unittest.TestCase):
                     "executor_mem_util_p95": 0.4,
                     "executor_count": 1,
                 },
-                "detection": {
-                    "labeled_rows": 100,
-                    "tp": 80,
-                    "tn": 10,
-                    "fp": 5,
-                    "fn": 5,
-                    "precision": 0.94,
-                    "recall": 0.94,
-                    "f1": 0.94,
-                    "fpr": 0.33,
-                    "fnr": 0.06,
-                },
             }
         )
 
         self.assertEqual(list(row.keys()), TIMESERIES_FIELDNAMES)
         self.assertEqual(row["batch_id"], 7)
-        self.assertEqual(row["metric_warnings"], "driver_cpu_percent_unavailable_without_psutil")
         self.assertEqual(row["source_p95_ms"], 10.0)
-        self.assertEqual(row["ingest_to_emit_p95_ms"], 20.0)
-        self.assertEqual(row["source_to_emit_p95_ms"], 30.0)
+        self.assertEqual(row["ingest_to_emit_p95_ms"], 21.0)
+        self.assertEqual(row["source_to_emit_p95_ms"], 31.0)
         self.assertEqual(row["proc_p95_ms"], 20.0)
         self.assertEqual(row["e2e_p95_ms"], 30.0)
         self.assertEqual(row["kafka_lag_records_total"], 5)
         self.assertEqual(row["driver_rss_mb"], 128.0)
-        self.assertEqual(row["precision"], 0.94)
         self.assertEqual(row["late_event_ratio_interpretable"], 0.01)
         self.assertEqual(row["freshness_signal_ratio"], "")
 
@@ -196,22 +180,36 @@ class StreamingMetricsCommonTests(unittest.TestCase):
         self.assertEqual(row["e2e_p95_ms"], "")
         self.assertEqual(row["ingest_to_emit_p95_ms"], "")
         self.assertEqual(row["driver_rss_mb"], "")
-        self.assertEqual(row["precision"], "")
 
-    def test_summarize_runtime_metrics_preserves_undefined_ratios_as_none(self) -> None:
+    def test_flatten_metrics_payload_preserves_legacy_latency_fallbacks(self) -> None:
+        row = flatten_metrics_payload(
+            {
+                "run_tag": "legacy",
+                "batch_id": 1,
+                "latency_ms": {
+                    "processing": {"p95": 20.0},
+                    "end_to_end": {"p95": 30.0},
+                },
+            }
+        )
+
+        self.assertEqual(row["ingest_to_emit_p95_ms"], 20.0)
+        self.assertEqual(row["source_to_emit_p95_ms"], 30.0)
+
+    def test_summarize_runtime_metrics_preserves_operational_fields(self) -> None:
         summary = summarize_runtime_metrics(
             [
                 {
                     "run_tag": "demo",
                     "batch_id": 1,
                     "rows": 50,
-                    "latency_ms": {
-                        "source_to_ingest": {"p95": 10.0},
-                        "processing": {"p95": 20.0},
-                        "ingest_to_emit": {"p95": 20.0},
-                        "end_to_end": {"p95": 30.0},
-                        "source_to_emit": {"p95": 30.0},
-                    },
+                      "latency_ms": {
+                          "source_to_ingest": {"p95": 10.0},
+                          "processing": {"p95": 20.0},
+                          "ingest_to_emit": {"p95": 21.0},
+                          "end_to_end": {"p95": 30.0},
+                          "source_to_emit": {"p95": 31.0},
+                      },
                     "system": {
                         "driver_cpu_percent": 12.5,
                         "driver_rss_mb": 100.0,
@@ -219,21 +217,37 @@ class StreamingMetricsCommonTests(unittest.TestCase):
                         "executor_mem_util_p95": 0.4,
                         "executor_count": 1,
                     },
-                    "metric_warnings": ["driver_cpu_percent_unavailable_without_psutil"],
-                    "detection": {"labeled_rows": 50, "tp": 0, "tn": 50, "fp": 0, "fn": 0},
                 }
             ]
         )
 
-        self.assertIsNone(summary["precision"])
-        self.assertIsNone(summary["recall"])
-        self.assertIsNone(summary["f1"])
-        self.assertEqual(summary["fpr"], 0.0)
-        self.assertIsNone(summary["fnr"])
         self.assertEqual(summary["driver_cpu_percent_avg"], 12.5)
         self.assertEqual(summary["executor_mem_util_p95_avg"], 0.4)
         self.assertEqual(summary["executor_count_max"], 1)
-        self.assertEqual(summary["metric_warnings"], ["driver_cpu_percent_unavailable_without_psutil"])
+        self.assertEqual(summary["ingest_to_emit_p95_ms_max"], 21.0)
+        self.assertEqual(summary["source_to_emit_p95_ms_max"], 31.0)
+        self.assertEqual(summary["proc_p95_ms_max"], 20.0)
+        self.assertEqual(summary["e2e_p95_ms_max"], 30.0)
+
+    def test_summarize_runtime_metrics_preserves_legacy_latency_fallbacks(self) -> None:
+        summary = summarize_runtime_metrics(
+            [
+                {
+                    "run_tag": "legacy",
+                    "batch_id": 1,
+                    "rows": 10,
+                    "latency_ms": {
+                        "processing": {"p95": 20.0},
+                        "end_to_end": {"p95": 30.0},
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(summary["ingest_to_emit_p95_ms_max"], 20.0)
+        self.assertEqual(summary["source_to_emit_p95_ms_max"], 30.0)
+        self.assertEqual(summary["proc_p95_ms_max"], 20.0)
+        self.assertEqual(summary["e2e_p95_ms_max"], 30.0)
 
     def test_summarize_runtime_metrics_splits_lateness_semantics_by_watermark_mode(self) -> None:
         summary = summarize_runtime_metrics(
@@ -300,7 +314,6 @@ class StreamingMetricsCommonTests(unittest.TestCase):
                 "event_time": {"late_event_ratio": 0.1},
                 "kafka": {"lag_records_total": 7, "lag_records_max_partition": 3},
                 "system": {"driver_rss_mb": 100.0, "executor_mem_util_avg": 0.2},
-                "detection": {"labeled_rows": 20, "tp": 8, "tn": 9, "fp": 2, "fn": 1},
             },
             {
                 "run_tag": "demo",
@@ -318,7 +331,6 @@ class StreamingMetricsCommonTests(unittest.TestCase):
                 "event_time": {"late_event_ratio": 0.2},
                 "kafka": {"lag_records_total": 4, "lag_records_max_partition": 2},
                 "system": {"driver_rss_mb": 80.0, "executor_mem_util_avg": 0.1},
-                "detection": {"labeled_rows": 10, "tp": 4, "tn": 4, "fp": 1, "fn": 1},
             },
         ]
         summary_before = summarize_runtime_metrics(metrics_rows)

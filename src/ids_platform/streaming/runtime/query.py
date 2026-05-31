@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 
-def apply_trigger(writer, *, available_now: bool, trigger_interval: str):
-    if available_now:
-        return writer.trigger(availableNow=True)
+def apply_trigger(writer, *, trigger_interval: str):
     normalized_interval = str(trigger_interval).strip()
     if not normalized_interval:
-        raise ValueError("trigger_interval must be non-empty when available_now is disabled")
+        raise ValueError("trigger_interval must be non-empty")
     return writer.trigger(processingTime=normalized_interval)
 
 

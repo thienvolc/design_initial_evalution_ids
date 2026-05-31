@@ -10,43 +10,32 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from ids_platform.streaming.runtime.control import (  # noqa: E402
-    clear_shutdown_request,
-    shutdown_request_path,
-    write_shutdown_request,
-)
 from ids_platform.streaming.evaluation.orchestration import fault_matrix  # noqa: E402
 
 
 class StreamingControlTests(unittest.TestCase):
-    def test_shutdown_request_round_trip(self) -> None:
-        run_tag = "unit_test_shutdown_request"
-        clear_shutdown_request(run_tag)
-        path = write_shutdown_request(run_tag)
-        self.assertEqual(path, shutdown_request_path(run_tag))
-        self.assertTrue(path.exists())
-        clear_shutdown_request(run_tag)
-        self.assertFalse(path.exists())
-
-    def test_stop_stream_process_docker_avoids_force_terminate_after_natural_exit(self) -> None:
+    def test_stop_stream_process_uses_kill_then_process_cleanup(self) -> None:
         process = mock.Mock()
-        process.poll.side_effect = [None, None]
         process.ids_execution_mode = "docker"
         process.ids_run_tag = "unit_test_run_tag"
 
         with (
-            mock.patch.object(fault_matrix, "write_shutdown_request") as write_shutdown_request_mock,
             mock.patch.object(fault_matrix, "wait_for_stream_shutdown", return_value=True) as wait_shutdown_mock,
-            mock.patch.object(fault_matrix, "wait_for_process_exit", return_value=True) as wait_exit_mock,
+            mock.patch.object(fault_matrix, "wait_for_process_exit", return_value=False) as wait_exit_mock,
             mock.patch.object(fault_matrix, "cleanup_stream_processes") as cleanup_mock,
             mock.patch.object(fault_matrix, "stop_background_process") as stop_background_process_mock,
         ):
             fault_matrix.stop_stream_process(process)
 
-        write_shutdown_request_mock.assert_called_once_with("unit_test_run_tag")
-        wait_shutdown_mock.assert_called()
-        wait_exit_mock.assert_called_once_with(process, timeout_sec=45)
-        cleanup_mock.assert_not_called()
+        wait_exit_mock.assert_called_once_with(process, timeout_sec=15)
+        cleanup_mock.assert_called_once_with(run_tag="unit_test_run_tag", execution_mode="docker")
+        wait_shutdown_mock.assert_called_once_with(
+            run_tag="unit_test_run_tag",
+            execution_mode="docker",
+            timeout_sec=45,
+            poll_sec=0.5,
+            settle_sec=2.0,
+        )
         stop_background_process_mock.assert_called_once_with(process)
 
     def test_wait_for_stream_shutdown_rechecks_after_settle_window(self) -> None:
@@ -83,7 +72,7 @@ class StreamingControlTests(unittest.TestCase):
         ) as run_command_mock:
             ready = fault_matrix.wait_for_kafka_topics_ready(
                 bootstrap_servers="kafka:29092",
-                topic_names=["ids.raw.flows", "ids.predictions.binary", "ids.metrics"],
+                topic_names=["ids.raw.flows", "ids.metrics"],
                 timeout_sec=1,
                 poll_sec=0.01,
                 execution_mode="docker",

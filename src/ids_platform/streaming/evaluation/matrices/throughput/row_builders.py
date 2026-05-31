@@ -3,7 +3,27 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 
-def build_layer_a_summary_row(
+def _merge_quality_summary(row: dict, quality_summary: dict | None, *, averaged_names: bool) -> None:
+    quality = quality_summary or {}
+    row["quality_status"] = quality.get("quality_status", "")
+    row["avg_prediction_score"] = quality.get("avg_prediction_score_weighted", "")
+    row["attack_ratio"] = quality.get("attack_ratio_weighted", "")
+    row["scored_rows_total"] = quality.get("scored_rows_total", "")
+    if averaged_names:
+        row["precision_avg"] = quality.get("precision", "")
+        row["recall_avg"] = quality.get("recall", "")
+        row["f1_avg"] = quality.get("f1", "")
+        row["fpr_avg"] = quality.get("fpr", "")
+        row["fnr_avg"] = quality.get("fnr", "")
+        return
+    row["precision"] = quality.get("precision", "")
+    row["recall"] = quality.get("recall", "")
+    row["f1"] = quality.get("f1", "")
+    row["fpr"] = quality.get("fpr", "")
+    row["fnr"] = quality.get("fnr", "")
+
+
+def build_capacity_summary_row(
     *,
     run_tag: str,
     repeat_index: int,
@@ -12,6 +32,7 @@ def build_layer_a_summary_row(
     profile: dict,
     metrics_rows: list[dict],
     summarize_runtime_metrics_fn,
+    quality_summary: dict | None = None,
 ) -> dict:
     row = {
         "run_tag": run_tag,
@@ -33,6 +54,7 @@ def build_layer_a_summary_row(
         "source_to_emit_p95_ms_max": "",
         "proc_p95_ms_max": "",
         "e2e_p95_ms_max": "",
+        "quality_status": "",
         "avg_prediction_score": "",
         "attack_ratio": "",
         "scored_rows_total": "",
@@ -51,11 +73,11 @@ def build_layer_a_summary_row(
         "executor_mem_util_avg": "",
         "executor_mem_util_p95_avg": "",
         "executor_count_max": "",
-        "metric_warnings": "",
         "status": "ok" if metrics_rows else "metrics_missing",
     }
 
     if not metrics_rows:
+        _merge_quality_summary(row, quality_summary, averaged_names=True)
         return row
 
     summary = summarize_runtime_metrics_fn(metrics_rows)
@@ -68,14 +90,7 @@ def build_layer_a_summary_row(
     row["source_to_emit_p95_ms_max"] = summary.get("source_to_emit_p95_ms_max", "")
     row["proc_p95_ms_max"] = summary.get("proc_p95_ms_max", "")
     row["e2e_p95_ms_max"] = summary.get("e2e_p95_ms_max", "")
-    row["avg_prediction_score"] = summary.get("avg_prediction_score_weighted", "")
-    row["attack_ratio"] = summary.get("attack_ratio_weighted", "")
-    row["scored_rows_total"] = summary.get("scored_rows_total", "")
-    row["precision_avg"] = summary.get("precision", "")
-    row["recall_avg"] = summary.get("recall", "")
-    row["f1_avg"] = summary.get("f1", "")
-    row["fpr_avg"] = summary.get("fpr", "")
-    row["fnr_avg"] = summary.get("fnr", "")
+    _merge_quality_summary(row, quality_summary, averaged_names=True)
     row["late_event_ratio_avg"] = summary.get("late_event_ratio_weighted", "")
     row["late_event_ratio_interpretable_avg"] = summary.get("late_event_ratio_interpretable_weighted", "")
     row["freshness_signal_ratio_avg"] = summary.get("freshness_signal_ratio_weighted", "")
@@ -86,7 +101,6 @@ def build_layer_a_summary_row(
     row["executor_mem_util_avg"] = summary.get("executor_mem_util_avg", "")
     row["executor_mem_util_p95_avg"] = summary.get("executor_mem_util_p95_avg", "")
     row["executor_count_max"] = summary.get("executor_count_max", "")
-    row["metric_warnings"] = "; ".join(summary.get("metric_warnings") or [])
     return row
 
 
@@ -98,6 +112,7 @@ def build_layer_b_summary_row(
     feature_set: str,
     metrics_rows: list[dict],
     summarize_runtime_metrics_fn,
+    quality_summary: dict | None = None,
 ) -> dict:
     row = {
         "run_tag": run_tag,
@@ -112,6 +127,7 @@ def build_layer_b_summary_row(
         "source_to_emit_p95_ms": "",
         "proc_p95_ms": "",
         "e2e_p95_ms": "",
+        "quality_status": "",
         "avg_prediction_score": "",
         "attack_ratio": "",
         "scored_rows_total": "",
@@ -130,11 +146,11 @@ def build_layer_b_summary_row(
         "executor_mem_util_avg": "",
         "executor_mem_util_p95": "",
         "executor_count": "",
-        "metric_warnings": "",
         "status": "ok" if metrics_rows else "metrics_missing",
     }
 
     if not metrics_rows:
+        _merge_quality_summary(row, quality_summary, averaged_names=False)
         return row
 
     summary = summarize_runtime_metrics_fn(metrics_rows)
@@ -148,16 +164,9 @@ def build_layer_b_summary_row(
             "source_to_emit_p95_ms": summary.get("source_to_emit_p95_ms_max", ""),
             "proc_p95_ms": summary.get("proc_p95_ms_max", ""),
             "e2e_p95_ms": summary.get("e2e_p95_ms_max", ""),
-            "avg_prediction_score": summary.get("avg_prediction_score_weighted", ""),
-            "attack_ratio": summary.get("attack_ratio_weighted", ""),
-            "scored_rows_total": summary.get("scored_rows_total", ""),
         }
     )
-    row["precision"] = summary.get("precision", "")
-    row["recall"] = summary.get("recall", "")
-    row["f1"] = summary.get("f1", "")
-    row["fpr"] = summary.get("fpr", "")
-    row["fnr"] = summary.get("fnr", "")
+    _merge_quality_summary(row, quality_summary, averaged_names=False)
     row["late_event_ratio"] = summary.get("late_event_ratio_weighted", "")
     row["late_event_ratio_interpretable"] = summary.get("late_event_ratio_interpretable_weighted", "")
     row["freshness_signal_ratio"] = summary.get("freshness_signal_ratio_weighted", "")
@@ -178,5 +187,4 @@ def build_layer_b_summary_row(
         row["executor_mem_util_p95"] = ((last_payload.get("system") or {}).get("executor_mem_util_p95", ""))
     if not row["executor_count"]:
         row["executor_count"] = ((last_payload.get("system") or {}).get("executor_count", ""))
-    row["metric_warnings"] = "; ".join(summary.get("metric_warnings") or [])
     return row

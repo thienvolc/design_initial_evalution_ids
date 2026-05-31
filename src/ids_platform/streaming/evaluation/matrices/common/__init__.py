@@ -8,17 +8,12 @@ from pathlib import Path
 from confluent_kafka import Consumer, TopicPartition
 
 from ids_platform.common.paths import PROJECT_ROOT, resolve_project_path
-from ids_platform.streaming.evaluation.matrices.common import metrics, outputs, waiters
+from ids_platform.streaming.evaluation.matrices.common import metrics, outputs, quality, waiters
 from ids_platform.streaming.evaluation.matrices.common.outputs import TIMESERIES_FIELDNAMES
 
 
 def _log_metrics_event(event: str, **fields) -> None:
-    parts = [f"[metrics] event={event}"]
-    for key, value in fields.items():
-        if value is None:
-            continue
-        parts.append(f"{key}={value}")
-    print(" ".join(parts), flush=True)
+    return None
 
 
 def _poll_timeout_seconds(*, end_time: float, max_poll_seconds: float = 1.0) -> float:
@@ -203,15 +198,6 @@ def _payload_batch_id(payload: dict) -> int:
     return int(batch_id) if batch_id is not None else 0
 
 
-def _compute_f1_score(precision: float | None, recall: float | None) -> float | None:
-    if precision is None or recall is None:
-        return None
-    denominator = precision + recall
-    if denominator <= 0:
-        return 0.0
-    return float((2.0 * precision * recall) / denominator)
-
-
 def flatten_metrics_payload(payload: dict) -> dict:
     return outputs.flatten_metrics_payload(payload, safe_float=_safe_float)
 
@@ -269,8 +255,11 @@ def summarize_runtime_metrics(metrics_rows: list[dict]) -> dict:
         is_terminal_metric_payload=is_terminal_metric_payload,
         safe_float=_safe_float,
         nested_float=_nested_float,
-        compute_f1_score=_compute_f1_score,
     )
+
+
+def summarize_prediction_quality(artifact_output: str | Path) -> dict:
+    return quality.summarize_prediction_quality(Path(artifact_output))
 
 
 def annotate_sut_debug_summary(row: dict) -> dict:

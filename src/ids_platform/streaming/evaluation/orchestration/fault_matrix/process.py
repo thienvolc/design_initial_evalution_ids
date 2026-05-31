@@ -23,11 +23,10 @@ def cleanup_docker_stream_processes(
             "-c",
             (
                 "import os,signal,subprocess,sys;"
-                "run_tag=sys.argv[1];"
                 "out=subprocess.check_output(['ps','-ef'], text=True);"
                 "matches=[];"
                 "for line in out.splitlines():"
-                "    if 'run_structured_streaming.py' not in line or 'python -c' in line or run_tag not in line:"
+                "    if 'run_structured_streaming.py' not in line or 'python -c' in line:"
                 "        continue;"
                 "    parts=line.split();"
                 "    if len(parts) > 1:"
@@ -75,11 +74,10 @@ def iter_docker_stream_processes(
             "-c",
             (
                 "import json,subprocess,sys;"
-                "run_tag=sys.argv[1];"
                 "out=subprocess.check_output(['ps','-ef'], text=True);"
                 "rows=[];"
                 "for line in out.splitlines():"
-                "    if 'run_structured_streaming.py' not in line or 'python -c' in line or run_tag not in line:"
+                "    if 'run_structured_streaming.py' not in line or 'python -c' in line:"
                 "        continue;"
                 "    parts=line.split();"
                 "    if len(parts) <= 1:"
@@ -136,7 +134,7 @@ def iter_host_stream_processes(
         if not isinstance(row, dict):
             continue
         command_line = str(row.get("CommandLine") or "")
-        if "run_structured_streaming.py" not in command_line or run_tag not in command_line:
+        if "run_structured_streaming.py" not in command_line:
             continue
         try:
             pid = int(row.get("ProcessId"))
