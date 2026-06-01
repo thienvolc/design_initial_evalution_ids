@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from ids_platform.streaming.config.common import RuntimeProfile
 from ids_platform.streaming.evaluation.matrices.common import collect_matching_metrics
 from ids_platform.streaming.replay.config import ReplayConfig
-from ids_platform.streaming.replay.runner import run_replay_job
+from ids_platform.streaming.replay.runner import publish_input_sentinel, run_replay_job
 from ids_platform.streaming.runtime.config import RuntimeConfig
 from ids_platform.streaming.runtime.structured_streaming_job import (
     start_structured_streaming_job,
@@ -55,6 +55,7 @@ def run_benchmark_run(config: BenchmarkRunConfig) -> BenchmarkRunResult:
             time.sleep(startup_wait_sec)
 
         run_replay_job(config.replay)
+        publish_input_sentinel(config.replay.runtime)
         time.sleep(_post_replay_settle_seconds(config.runtime.spark.trigger_interval))
         job.wait(timeout_sec=max(int(config.stream_wait_timeout_sec), 1))
     except Exception:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 
-from ids_platform.streaming.observability.system import prime_process_metrics_probe
+from ids_platform.streaming.runtime.system_metrics import prime_process_metrics_probe
 
 
 def prepare_spark_environment(spark_config) -> None:

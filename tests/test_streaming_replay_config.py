@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 import pyarrow as pa
@@ -15,7 +15,6 @@ if str(SRC_DIR) not in sys.path:
 
 from ids_platform.streaming.replay.config import (
     RateStep,
-    render_replay_command,
     ReplayRatePlan,
     ReplaySourceFactory,
 )
@@ -49,34 +48,29 @@ class ReplayConfigTests(unittest.TestCase):
 
         self.assertEqual(plan.expected_elapsed_for_rows(300), 4.0)
 
-    def test_render_replay_command_has_no_cli_flags(self) -> None:
-        command = render_replay_command(python_exe="python")
-
-        self.assertEqual(command[0:2], ["python", "scripts/streaming/official/replay_parquet_to_kafka.py"])
-        self.assertEqual(len(command), 2)
-
     def test_source_factory_can_limit_rows_and_add_required_columns(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            dataset_path = Path(tmp) / "trace.parquet"
-            pq.write_table(
-                pa.table(
-                    {
-                        "timestamp": [
-                            "2024-01-01T00:00:00Z",
-                            "2024-01-01T00:00:01Z",
-                            "2024-01-01T00:00:02Z",
-                        ],
-                        "feature_1": [1.0, 2.0, 3.0],
-                    }
-                ),
-                dataset_path,
-            )
+        temp_dir = PROJECT_ROOT / "artifacts" / "tmp_tests" / f"replay_source_{uuid.uuid4().hex}"
+        temp_dir.mkdir(parents=True, exist_ok=False)
+        dataset_path = temp_dir / "trace.parquet"
+        pq.write_table(
+            pa.table(
+                {
+                    "timestamp": [
+                        "2024-01-01T00:00:00Z",
+                        "2024-01-01T00:00:01Z",
+                        "2024-01-01T00:00:02Z",
+                    ],
+                    "feature_1": [1.0, 2.0, 3.0],
+                }
+            ),
+            dataset_path,
+        )
 
-            source = ReplaySourceFactory(
-                dataset_path=dataset_path,
-                batch_size=2,
-                row_limit=2,
-            ).create()
+        source = ReplaySourceFactory(
+            dataset_path=dataset_path,
+            batch_size=2,
+            row_limit=2,
+        ).create()
 
         self.assertEqual(source.table.num_rows, 2)
         self.assertEqual(source.batch_size, 2)

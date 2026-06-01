@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 import time
 
-from ids_platform.streaming.replay.config import ReplayConfig
+from ids_platform.streaming.replay.config import ReplayConfig, ReplayRuntimeConfig
 from ids_platform.streaming.replay.perturbation import ReplayPerturbation
 from ids_platform.streaming.replay.publisher import ReplayRecordBuilder, ReplayPublisher
 from ids_platform.streaming.replay.rate_limiter import sleep_for_rate_limit
@@ -38,7 +38,10 @@ def run_replay_job(config: ReplayConfig) -> int:
             started=started_at
         )
 
-    sentinel_record = record_builder.build_input_sentinel_record()
-    publisher.publish_sentinel(sentinel_record)
-
     return sent_rows
+
+
+def publish_input_sentinel(runtime: ReplayRuntimeConfig) -> None:
+    publisher = ReplayPublisher(runtime)
+    record_builder = ReplayRecordBuilder(runtime.run_tag)
+    publisher.publish_sentinel(record_builder.build_input_sentinel_record())

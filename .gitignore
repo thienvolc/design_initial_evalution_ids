@@ -1,6 +1,7 @@
 .venv
 .idea
 .env
+.tmp-test
 docs/_archive
 artifacts/streaming/**
 *.rar

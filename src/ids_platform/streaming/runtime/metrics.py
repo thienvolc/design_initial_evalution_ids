@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol, cast
 
-from ids_platform.streaming.observability.system import (
+from ids_platform.streaming.runtime.system_metrics import (
     probe_executor_memory_utilization,
     probe_kafka_lag,
     probe_process_metrics,

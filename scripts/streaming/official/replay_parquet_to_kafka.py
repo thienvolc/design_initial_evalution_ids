@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Debug-only replay entrypoint. Official runs go through matrix scripts."""
+
 import sys
 from pathlib import Path
 

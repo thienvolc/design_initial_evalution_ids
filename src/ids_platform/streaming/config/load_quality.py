@@ -9,6 +9,14 @@ from ids_platform.streaming.config.common import (
     BenchmarkRunPlan,
     DEFAULT_TIMING_CONFIG,
     RuntimeProfile,
+    SMOKE_BATCH_SIZE,
+    SMOKE_METRICS_IDLE_SEC,
+    SMOKE_METRICS_TIMEOUT_SEC,
+    SMOKE_REPLAY_RATE,
+    SMOKE_ROW_LIMIT,
+    SMOKE_RPS,
+    SMOKE_STREAM_STARTUP_WAIT_SEC,
+    SMOKE_STREAM_WAIT_TIMEOUT_SEC,
     benchmark_run_tag,
     build_benchmark_run_config,
     stream_wait_timeout,
@@ -44,7 +52,7 @@ class LoadProfile:
 
 
 LOAD_QUALITY_SMOKE_PROFILES = (
-    LoadProfile("smoke", 500, 1_000, (RateStep(rows_per_sec=500, duration_sec=2),)),
+    LoadProfile("smoke", SMOKE_RPS, SMOKE_ROW_LIMIT, SMOKE_REPLAY_RATE.schedule),
 )
 
 LOAD_QUALITY_LOCAL_PROFILES = (
@@ -188,12 +196,12 @@ LOAD_QUALITY_SMOKE_CONFIG = build_load_quality_matrix_config(
     profiles=LOAD_QUALITY_SMOKE_PROFILES,
     summary_csv="artifacts/streaming/evaluation/load_quality_smoke.csv",
     model_name="random_forest",
-    batch_size=500,
+    batch_size=SMOKE_BATCH_SIZE,
     run_prefix="loadSmoke",
-    metrics_timeout_sec=120,
-    metrics_idle_sec=5,
-    stream_startup_wait_sec=10,
-    stream_wait_timeout_sec=60,
+    metrics_timeout_sec=SMOKE_METRICS_TIMEOUT_SEC,
+    metrics_idle_sec=SMOKE_METRICS_IDLE_SEC,
+    stream_startup_wait_sec=SMOKE_STREAM_STARTUP_WAIT_SEC,
+    stream_wait_timeout_sec=SMOKE_STREAM_WAIT_TIMEOUT_SEC,
 )
 
 def build_load_quality_local_config() -> BenchmarkMatrixConfig:

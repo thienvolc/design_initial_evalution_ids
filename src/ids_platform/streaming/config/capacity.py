@@ -8,6 +8,13 @@ from ids_platform.streaming.config.common import (
     BenchmarkRunPlan,
     DEFAULT_TIMING_CONFIG,
     RuntimeProfile,
+    SMOKE_BATCH_SIZE,
+    SMOKE_METRICS_IDLE_SEC,
+    SMOKE_METRICS_TIMEOUT_SEC,
+    SMOKE_REPLAY_RATE,
+    SMOKE_ROW_LIMIT,
+    SMOKE_STREAM_STARTUP_WAIT_SEC,
+    SMOKE_STREAM_WAIT_TIMEOUT_SEC,
     benchmark_run_tag,
     build_benchmark_run_config,
     stream_wait_timeout,
@@ -28,10 +35,7 @@ CAPACITY_MAIN_PROFILES = (
     RuntimeProfile("capacity_high", 8_000, 16, "10 seconds"),
 )
 
-CAPACITY_SMOKE_RATE = ReplayRatePlan(
-    rows_per_sec=0.0,
-    schedule=(RateStep(rows_per_sec=500, duration_sec=2),),
-)
+CAPACITY_SMOKE_RATE = SMOKE_REPLAY_RATE
 
 CAPACITY_MAIN_RATE = ReplayRatePlan(
     rows_per_sec=0.0,
@@ -129,14 +133,14 @@ def build_capacity_matrix_config(
 CAPACITY_SMOKE_CONFIG = build_capacity_matrix_config(
     name="capacity_smoke",
     profiles=CAPACITY_SMOKE_PROFILES,
-    source_factory=ReplaySourceFactory(batch_size=500, row_limit=1_000),
+    source_factory=ReplaySourceFactory(batch_size=SMOKE_BATCH_SIZE, row_limit=SMOKE_ROW_LIMIT),
     rate=CAPACITY_SMOKE_RATE,
     summary_csv="artifacts/streaming/evaluation/capacity_smoke.csv",
     run_prefix="capacitySmoke",
-    metrics_timeout_sec=120,
-    metrics_idle_sec=5,
-    stream_startup_wait_sec=10,
-    stream_wait_timeout_sec=60,
+    metrics_timeout_sec=SMOKE_METRICS_TIMEOUT_SEC,
+    metrics_idle_sec=SMOKE_METRICS_IDLE_SEC,
+    stream_startup_wait_sec=SMOKE_STREAM_STARTUP_WAIT_SEC,
+    stream_wait_timeout_sec=SMOKE_STREAM_WAIT_TIMEOUT_SEC,
 )
 
 def build_capacity_main_config() -> CapacityMatrixConfig:

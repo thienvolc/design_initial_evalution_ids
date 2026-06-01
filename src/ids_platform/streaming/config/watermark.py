@@ -8,6 +8,13 @@ from ids_platform.streaming.config.common import (
     BenchmarkRunPlan,
     DEFAULT_TIMING_CONFIG,
     RuntimeProfile,
+    SMOKE_BATCH_SIZE,
+    SMOKE_METRICS_IDLE_SEC,
+    SMOKE_METRICS_TIMEOUT_SEC,
+    SMOKE_REPLAY_RATE,
+    SMOKE_ROW_LIMIT,
+    SMOKE_STREAM_STARTUP_WAIT_SEC,
+    SMOKE_STREAM_WAIT_TIMEOUT_SEC,
     benchmark_run_tag,
     build_benchmark_run_config,
     stream_wait_timeout,
@@ -28,10 +35,7 @@ WATERMARK_MAIN_RATE = ReplayRatePlan(
     ),
 )
 
-WATERMARK_SMOKE_RATE = ReplayRatePlan(
-    rows_per_sec=0.0,
-    schedule=(RateStep(rows_per_sec=500, duration_sec=2),),
-)
+WATERMARK_SMOKE_RATE = SMOKE_REPLAY_RATE
 
 WATERMARK_WARMUP_RATE = ReplayRatePlan(
     rows_per_sec=0.0,
@@ -150,14 +154,14 @@ def build_watermark_matrix_config(
 WATERMARK_SMOKE_CONFIG = build_watermark_matrix_config(
     name="watermark_smoke",
     delays_sec=(0,),
-    source_factory=ReplaySourceFactory(batch_size=500, row_limit=1_000),
+    source_factory=ReplaySourceFactory(batch_size=SMOKE_BATCH_SIZE, row_limit=SMOKE_ROW_LIMIT),
     rate=WATERMARK_SMOKE_RATE,
     summary_csv="artifacts/streaming/evaluation/watermark_smoke.csv",
     run_prefix="watermarkSmoke",
-    metrics_timeout_sec=120,
-    metrics_idle_sec=5,
-    stream_startup_wait_sec=10,
-    stream_wait_timeout_sec=60,
+    metrics_timeout_sec=SMOKE_METRICS_TIMEOUT_SEC,
+    metrics_idle_sec=SMOKE_METRICS_IDLE_SEC,
+    stream_startup_wait_sec=SMOKE_STREAM_STARTUP_WAIT_SEC,
+    stream_wait_timeout_sec=SMOKE_STREAM_WAIT_TIMEOUT_SEC,
 )
 
 def build_watermark_main_config() -> BenchmarkMatrixConfig:

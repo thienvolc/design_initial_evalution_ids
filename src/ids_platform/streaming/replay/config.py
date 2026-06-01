@@ -117,10 +117,3 @@ class ReplaySourceFactory:
             table = table.slice(0, int(self.row_limit))
 
         return ReplaySource(table=table, batch_size=self.batch_size)
-
-
-def render_replay_command(*, python_exe: str) -> list[str]:
-    return [
-        python_exe,
-        "scripts/streaming/official/replay_parquet_to_kafka.py",
-    ]
