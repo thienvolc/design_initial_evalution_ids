@@ -16,8 +16,7 @@ from ids_platform.streaming.config.common import (
     SMOKE_STREAM_STARTUP_WAIT_SEC,
     SMOKE_STREAM_WAIT_TIMEOUT_SEC,
     benchmark_run_tag,
-    build_benchmark_run_config,
-    stream_wait_timeout,
+    build_benchmark_run_plan,
 )
 from ids_platform.streaming.replay.config import (
     RateStep,
@@ -89,54 +88,26 @@ def build_watermark_matrix_config(
             label=profile.name,
             created_ms=created_ms,
         )
-        warmup = None
-        if warmup_source is not None and warmup_rate is not None:
-            warmup = build_benchmark_run_config(
-                run_tag=f"{run_tag}_warmup",
+        runs.append(
+            build_benchmark_run_plan(
+                run_tag=run_tag,
                 repeat_index=1,
                 profile=profile,
-                source=warmup_source,
-                rate=warmup_rate,
+                source=source,
+                rate=rate,
                 timing=timing,
                 model_name=model_name,
                 feature_set=feature_set,
-                metrics_timeout_sec=0,
-                metrics_idle_sec=0,
+                metrics_timeout_sec=metrics_timeout_sec,
+                metrics_idle_sec=metrics_idle_sec,
                 stream_startup_wait_sec=stream_startup_wait_sec,
-                stream_wait_timeout_sec=stream_wait_timeout(
-                    row_count=warmup_source.table.num_rows,
-                    rate=warmup_rate,
-                    override_seconds=warmup_stream_wait_timeout_sec,
-                ),
-                load_profile=f"{profile.name}_warmup",
+                stream_wait_timeout_sec=stream_wait_timeout_sec,
                 watermark_delay_sec=delay_sec,
                 drop_late_events=drop_late_events,
-            )
-
-        benchmark = build_benchmark_run_config(
-            run_tag=run_tag,
-            repeat_index=1,
-            profile=profile,
-            source=source,
-            rate=rate,
-            timing=timing,
-            model_name=model_name,
-            feature_set=feature_set,
-            metrics_timeout_sec=metrics_timeout_sec,
-            metrics_idle_sec=metrics_idle_sec,
-            stream_startup_wait_sec=stream_startup_wait_sec,
-            stream_wait_timeout_sec=stream_wait_timeout(
-                row_count=source.table.num_rows,
-                rate=rate,
-                override_seconds=stream_wait_timeout_sec,
-            ),
-            watermark_delay_sec=delay_sec,
-            drop_late_events=drop_late_events,
-        )
-        runs.append(
-            BenchmarkRunPlan(
-                benchmark=benchmark,
-                warmup=warmup,
+                warmup_source=warmup_source,
+                warmup_rate=warmup_rate,
+                warmup_load_profile=f"{profile.name}_warmup",
+                warmup_stream_wait_timeout_sec=warmup_stream_wait_timeout_sec,
                 summary_context={
                     "watermark_delay_sec": delay_sec,
                     "drop_late_events": drop_late_events,

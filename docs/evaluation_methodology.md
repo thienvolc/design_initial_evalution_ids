@@ -1,64 +1,49 @@
 # Evaluation Methodology
 
-## Chosen Model
+## Chosen Boundary
 
-This repo currently uses a metrics-driven evaluation boundary between the system under test and the evaluation system.
+The active workflow separates runtime execution from evaluation:
 
-- keep in-SUT metrics for debugging and live observability
-- treat matrix summary CSVs and consolidated reports as the authoritative experiment outputs for now
-
-This repo currently uses a metrics-driven evaluation path. A fully separate external evaluator is not part of the active workflow.
+- runtime emits operational metrics and prediction parquet
+- evaluation matrices turn those artifacts into summary CSVs and plots
+- paper conclusions should cite matrix artifacts, not ad hoc runtime inspection
 
 ## System Under Test
 
 The SUT is the Spark Structured Streaming runtime:
 
-- input
-  - replayed Kafka traffic
-- processing
-  - parsing, feature preparation, model scoring, prediction emission
-- output
-  - prediction parquet
-  - prediction Kafka output
-  - debug telemetry on `ids.metrics`
+- input: replayed Kafka traffic
+- processing: parsing, feature preparation, model scoring
+- output: prediction parquet and operational `ids.metrics`
+
+Runtime no longer publishes a Kafka prediction sink. Classification quality is computed after the run from prediction parquet.
 
 ## Official Evaluation System
 
-The authoritative evaluation path currently uses matrix runners that read SUT-emitted metrics:
+The authoritative evaluation path is:
 
-- Layer A, Layer B, Layer C, watermark, and load-quality summary CSVs
-- consolidated report JSON and markdown
-- Streamlit dashboard that reads those artifacts
+- capacity calibration, Layer B, Layer C, watermark, and load-quality summary CSVs
+- per-run metrics time series
+- prediction parquet quality summaries
+- report plots derived from those files
 
-These are the outputs that should be cited in reports, conclusions, and comparisons.
+Default matrix scripts are smoke gates. They check startup, replay, sentinel stop, metrics publication, parquet quality summary, and CSV status. Larger paper-scale runs must explicitly select the main Python config builders.
 
 ## Artifact Contract
 
-- prediction artifacts
-  - raw SUT outputs
+- prediction parquet
+  - source of truth for post-run classification quality
+- `ids.metrics`
+  - operational runtime payloads only
 - matrix summary CSVs
-  - official per-scenario evaluation outputs currently derived from `ids.metrics`
-- consolidated report JSON/markdown
-  - official aggregated evaluation outputs
-- Prometheus and Grafana
-  - live runtime monitoring only
-
-## Reproducible Flow
-
-Use this sequence for repeatable evaluation:
-
-1. replay traffic into Kafka
-2. run the SUT streaming scorer
-3. collect per-scenario summary CSVs
-4. build the consolidated report
-5. review official results in Streamlit
+  - official per-scenario evaluation outputs
+- metrics time series
+  - official operational traces for plots and diagnosis
 
 ## What Not To Do
 
-Avoid treating these as the final benchmark source:
+Avoid treating these as final benchmark evidence:
 
-- Grafana panels
-- Prometheus timeseries
-- raw `ids.metrics` topic data by itself, outside the matrix summary pipeline
-
-These are useful for debugging, run health, and operational inspection. Current official claims should be made from the matrix summary CSVs and consolidated reports, not from ad hoc inspection of the live telemetry stream.
+- smoke gate outputs by themselves
+- raw `ids.metrics` messages outside the matrix summary pipeline
+- manual dashboard screenshots or informal process logs

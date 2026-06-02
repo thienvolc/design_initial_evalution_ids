@@ -4,16 +4,10 @@ from datetime import datetime, timezone
 
 from ids_platform.streaming.config.common import BenchmarkMatrixConfig
 from ids_platform.streaming.evaluation.matrices.benchmark_matrix import run_benchmark_matrix
-from ids_platform.streaming.evaluation.matrices.common import summarize_runtime_metrics
-
-
-def _quality_fields(row: dict, quality_summary: dict) -> None:
-    row["quality_status"] = quality_summary.get("quality_status", "")
-    row["precision"] = quality_summary.get("precision", "")
-    row["recall"] = quality_summary.get("recall", "")
-    row["f1"] = quality_summary.get("f1", "")
-    row["fpr"] = quality_summary.get("fpr", "")
-    row["fnr"] = quality_summary.get("fnr", "")
+from ids_platform.streaming.evaluation.matrices.common import (
+    apply_quality_summary_fields,
+    summarize_runtime_metrics,
+)
 
 
 def _summary_row(run_plan, benchmark, metrics_rows: list[dict], quality_summary: dict) -> dict:
@@ -44,7 +38,7 @@ def _summary_row(run_plan, benchmark, metrics_rows: list[dict], quality_summary:
         "freshness_signal_ratio": "",
         "status": "ok" if metrics_rows else "metrics_missing",
     }
-    _quality_fields(row, quality_summary)
+    apply_quality_summary_fields(row, quality_summary)
     if not metrics_rows:
         return row
 

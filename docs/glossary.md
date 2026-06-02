@@ -2,58 +2,48 @@
 
 ## SUT
 
-System under test.
-
-In this project, the SUT is the Spark Structured Streaming scorer started by `run_structured_streaming.py`. It consumes replayed Kafka traffic and emits predictions plus debug telemetry.
+System under test. In this project, the SUT is the Spark Structured Streaming scorer. It consumes replayed Kafka traffic, writes prediction parquet, and publishes operational metrics.
 
 ## Evaluation System
 
-The part of the project that turns experiment runs into official results.
+The code that turns runtime artifacts into official results: matrix summaries, metrics time series, prediction-quality summaries, and plots.
 
-In this repo, that means matrix summaries, consolidated reports, and the Streamlit evaluation dashboard.
+## Smoke Gate
 
-## Debug Telemetry
+A short health check for the streaming flow. Current smoke gates use 1000 rows, batches of 500, and a replay schedule of 500 rps for 2 seconds.
 
-Supporting runtime observability emitted by the SUT, primarily through `ids.metrics` and surfaced through Prometheus/Grafana.
-
-Useful for debugging and live monitoring, but not the official benchmark source.
+Smoke gates detect broken startup, replay, sentinel stop, metrics publication, parquet output, or summary CSV generation. They are not paper-scale benchmark evidence.
 
 ## Official Evaluation Output
 
 Artifacts that should be treated as the source of truth for experiment conclusions:
 
 - matrix summary CSVs
-- consolidated report JSON
-- consolidated report markdown
+- metrics time series CSVs
+- prediction parquet quality summaries
+- report plots derived from those files
 
-## Layer A
+## Capacity Calibration
 
-System-level streaming knob evaluation.
+Operating-point evaluation for the streaming SUT. Typical focus:
 
-Typical focus:
-- `max_offsets_per_trigger`
-- `shuffle_partitions`
-- trigger interval
-- throughput and latency tradeoffs
+- target replay RPS
+- throughput and rows processed
+- p50/p95 latency
+- batch wall time
+- Kafka lag
 
 ## Layer B
 
-Model and feature-set evaluation in the streaming context.
+Model and feature-set evaluation in the streaming context. Typical focus:
 
-Typical focus:
 - model choice
 - feature-set choice
-- inference latency
-- quality under the streaming runtime
+- quality/operation tradeoff under the streaming runtime
 
 ## Layer C
 
-Fault and recovery evaluation.
-
-Typical focus:
-- restart or fault scenarios
-- recovery time
-- post-fault throughput and latency
+Fault and recovery evaluation. The active recovery mechanism is checkpoint-based restart plus input sentinel coordination.
 
 ## Watermark Matrix
 
@@ -65,30 +55,12 @@ Experiment set for detection quality under different input pressure/load profile
 
 ## `run_tag`
 
-Identifier attached to a run's output artifacts and telemetry.
-
-Used to distinguish one experiment run from another.
+Identifier attached to a run's output artifacts and metrics.
 
 ## `input_run_tag`
 
-Identifier used by the stream to filter which replayed Kafka records should be consumed for the current run.
-
-In most experiments, `run_tag` and `input_run_tag` should match.
-
-## `available-now`
-
-Structured Streaming mode that processes data currently available in the source and then stops.
-
-Useful when replay has already populated the topic.
-
-## `run-seconds`
-
-Explicit wall-clock duration for keeping the stream alive during trace-style runs.
-
-Useful when the stream starts first and replay happens afterward.
+Identifier used by the stream to filter which replayed Kafka records belong to the current run. In matrix runs, `run_tag` and `input_run_tag` should match.
 
 ## Metrics Topic
 
-The Kafka topic used for SUT-emitted runtime telemetry.
-
-In this project, it supports debugging and observability, not the final evaluation report.
+Kafka topic for operational runtime payloads. In this project, `ids.metrics` supports matrix summaries and operational diagnosis; classification quality comes from prediction parquet.

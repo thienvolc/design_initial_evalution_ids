@@ -184,8 +184,8 @@ class RuntimeSinksTests(unittest.TestCase):
             sentinel_query=sentinel_query,
         )
 
-        self.assertEqual(all_queries[0], (sentinel_query, "input_sentinel"))
-        self.assertEqual(all_queries[1:], data_queries)
+        self.assertEqual(all_queries[:-1], data_queries)
+        self.assertEqual(all_queries[-1], (sentinel_query, "input_sentinel"))
 
 
 if __name__ == "__main__":

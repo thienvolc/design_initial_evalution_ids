@@ -48,17 +48,24 @@ PLOT_SPECS = [
     ("executor_mem_util_avg", "Executor Memory Utilization Over Time", "Utilization", "timeseries_executor_mem_util_avg.png"),
 ]
 
-RUN_GROUP_ORDER = ["layer_a", "layer_b", "layer_c", "watermark", "load", "other"]
+RUN_GROUP_ORDER = ["capacity_calibration", "model_feature_tradeoff", "layer_c", "watermark", "load", "other"]
 RUN_GROUP_TITLES = {
-    "layer_a": "Layer A",
-    "layer_b": "Layer B",
+    "capacity_calibration": "Capacity Calibration",
+    "model_feature_tradeoff": "Model Feature Tradeoff",
     "layer_c": "Layer C",
     "watermark": "Watermark",
     "load": "Load Quality",
     "other": "Other Runs",
 }
 
-LAYER_A_LABEL_ORDER = ["A_low", "A_mid", "A_high"]
+CAPACITY_LABEL_ORDER = [
+    "pass-through 500 rps",
+    "RF-Full 500 rps",
+    "pass-through 750 rps",
+    "RF-Full 750 rps",
+    "pass-through 1000 rps",
+    "RF-Full 1000 rps",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -156,10 +163,10 @@ def _explain_empty_series(frame: pd.DataFrame, column_name: str) -> str:
 
 def _infer_run_group(run_tag: str) -> str:
     normalized = run_tag.lower()
-    if normalized.startswith("layera_"):
-        return "layer_a"
-    if normalized.startswith("layerb_"):
-        return "layer_b"
+    if normalized.startswith("capacitycalibration_"):
+        return "capacity_calibration"
+    if normalized.startswith("modelfeaturetradeoff_"):
+        return "model_feature_tradeoff"
     if normalized.startswith("layerc_"):
         return "layer_c"
     if normalized.startswith("watermark_"):
@@ -171,30 +178,17 @@ def _infer_run_group(run_tag: str) -> str:
 
 def _short_run_label(run_tag: str) -> str:
     normalized = run_tag.lower()
-    if normalized.startswith("layera_"):
-        match = re.search(r"_(a_(low|mid|high))_", normalized)
+    if normalized.startswith("capacitycalibration_"):
+        match = re.search(r"_(pass_through|random_forest_full)_([0-9]+)rps_", normalized)
         if match:
-            return f"A_{match.group(2)}"
-        return "Layer A"
-    if normalized.startswith("layerb_"):
-        match = re.search(
-            r"layerb_.*?_(logistic_regression|random_forest|gradient_boosting)_(reduced|full)_\d+$",
-            normalized,
-        )
+            mode = "pass-through" if match.group(1) == "pass_through" else "RF-Full"
+            return f"{mode} {match.group(2)} rps"
+        return "capacity calibration"
+    if normalized.startswith("modelfeaturetradeoff_"):
+        match = re.search(r"_(rf_17|rf17|rf-17)_([0-9]+)rps_", normalized)
         if match:
-            model_name = match.group(1)
-            feature_set = match.group(2)
-            if model_name == "logistic_regression":
-                prefix = "LR"
-            elif model_name == "random_forest":
-                prefix = "RF"
-            elif model_name == "gradient_boosting":
-                prefix = "GBT"
-            else:
-                prefix = model_name
-            suffix = "F" if feature_set == "full" else "R"
-            return f"{prefix}-{suffix}"
-        return "Layer B"
+            return f"RF-17 {match.group(2)} rps"
+        return "RF-17"
     if normalized.startswith("layerc_"):
         match = re.search(r"layerc_\d+_([a-z_]+)_\d+$", normalized)
         if match:
@@ -220,9 +214,9 @@ def _output_name_with_group(output_name: str, group_name: str) -> str:
 
 
 def _ordered_group_labels(labels: list[str], group_name: str) -> list[str]:
-    if group_name == "layer_a":
-        remaining = [label for label in labels if label not in LAYER_A_LABEL_ORDER]
-        return [label for label in LAYER_A_LABEL_ORDER if label in labels] + sorted(remaining)
+    if group_name == "capacity_calibration":
+        remaining = [label for label in labels if label not in CAPACITY_LABEL_ORDER]
+        return [label for label in CAPACITY_LABEL_ORDER if label in labels] + sorted(remaining)
     return sorted(labels)
 
 

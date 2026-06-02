@@ -50,7 +50,7 @@ class ReplayRunnerTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         publisher_cls.assert_called_once_with(config.runtime)
-        builder_cls.assert_called_once_with("run-1")
+        builder_cls.assert_called_once_with("run-1", phase="measure")
 
 
 if __name__ == "__main__":

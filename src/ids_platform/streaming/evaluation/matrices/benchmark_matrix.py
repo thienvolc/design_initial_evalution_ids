@@ -3,6 +3,7 @@ from __future__ import annotations
 from ids_platform.streaming.config.common import BenchmarkMatrixConfig, BenchmarkRunPlan
 from ids_platform.streaming.evaluation.matrices.common import (
     annotate_sut_debug_summary,
+    filter_metrics_by_phase,
     summarize_prediction_quality,
     write_metrics_timeseries,
     write_summary_rows,
@@ -26,19 +27,17 @@ def run_benchmark_matrix(
     summary_rows: list[dict] = []
 
     for run_plan in config.runs:
-        if run_plan.warmup is not None:
-            run_benchmark_run(run_plan.warmup)
-
         benchmark = run_plan.benchmark
         result = run_benchmark_run(benchmark)
+        measure_metrics_rows = filter_metrics_by_phase(result.metrics_rows, "measure")
         summary, _ = materialize_sut_summary_row(
             run_tag=benchmark.run_tag,
             metrics_rows=result.metrics_rows,
             build_legacy_row_fn=lambda materialized_metrics_rows: build_summary_row(
                 run_plan,
                 benchmark,
-                materialized_metrics_rows,
-                summarize_prediction_quality(benchmark.runtime.output.artifact_output),
+                measure_metrics_rows,
+                summarize_prediction_quality(benchmark.runtime.output.artifact_output, phase="measure"),
             ),
             write_metrics_timeseries_fn=write_metrics_timeseries,
             annotate_sut_debug_summary_fn=annotate_sut_debug_summary,

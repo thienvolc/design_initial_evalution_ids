@@ -2,6 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+QUALITY_SUMMARY_FIELDS = (
+    "quality_status",
+    "precision",
+    "recall",
+    "f1",
+    "fpr",
+    "fnr",
+)
+
+
+def apply_quality_summary_fields(row: dict, quality_summary: dict | None) -> None:
+    quality = quality_summary or {}
+    for field in QUALITY_SUMMARY_FIELDS:
+        row[field] = quality.get(field, "")
+
 
 def _empty_quality(status: str) -> dict:
     return {
@@ -37,7 +52,7 @@ def _f1(precision: float | None, recall: float | None) -> float | None:
     return float((2.0 * precision * recall) / denominator)
 
 
-def summarize_prediction_quality(artifact_output: Path) -> dict:
+def summarize_prediction_quality(artifact_output: Path, *, phase: str = "measure") -> dict:
     path = Path(artifact_output)
     if not path.exists():
         return _empty_quality("quality_missing")
@@ -47,6 +62,11 @@ def summarize_prediction_quality(artifact_output: Path) -> dict:
     import pandas as pd
 
     frame = pd.read_parquet(path)
+    if phase and "benchmark_phase" in frame.columns:
+        expected_phase = str(phase).strip().lower()
+        if expected_phase:
+            phases = frame["benchmark_phase"].fillna("measure").astype(str).str.lower()
+            frame = frame[phases == expected_phase]
     if frame.empty:
         return _empty_quality("no_predictions")
     required_columns = {"label_binary", "prediction_label"}

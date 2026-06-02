@@ -187,18 +187,14 @@ def main() -> int:
     PAPER_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     evaluation_dir = PROJECT_ROOT / "artifacts/streaming/evaluation"
-    layer_a_run_tags = _read_run_tags_many(
+    capacity_calibration_run_tags = _read_run_tags_many(
         [
-            evaluation_dir / "layer_a_summary_500k.csv",
-            evaluation_dir / "layer_a_summary_500k_rerun02.csv",
-            evaluation_dir / "layer_a_summary_500k_rerun03.csv",
+            evaluation_dir / "capacity_calibration.csv",
         ]
     )
-    layer_b_run_tags = _read_run_tags_many(
+    model_feature_tradeoff_run_tags = _read_run_tags_many(
         [
-            evaluation_dir / "layer_b_summary_500k.csv",
-            evaluation_dir / "layer_b_summary_500k_rerun02.csv",
-            evaluation_dir / "layer_b_summary_500k_rerun03.csv",
+            evaluation_dir / "model_feature_tradeoff.csv",
         ]
     )
     layer_c_run_tags = _read_run_tags_many(
@@ -223,52 +219,32 @@ def main() -> int:
         ]
     )
 
-    layer_b_baseline_run_tags = []
-    for summary_name in [
-        "layer_b_summary_500k_with_lr_full_rerun01.csv",
-        "layer_b_summary_500k_with_lr_full_rerun02.csv",
-        "layer_b_summary_500k_with_lr_full_rerun03.csv",
-    ]:
-        frame = pd.read_csv(PROJECT_ROOT / "artifacts/streaming/evaluation" / summary_name)
-        baseline_rows = frame.loc[
-            frame["load_profile"].isin(["logistic_regression:full", "random_forest:full"]),
-            "run_tag",
-        ]
-        layer_b_baseline_run_tags.extend([str(value) for value in baseline_rows.dropna().tolist()])
-
     _build_timeseries(
-        _timeseries_inputs(layer_a_run_tags),
-        "timeseries_rows_per_sec.layer_a.png",
+        _timeseries_inputs(capacity_calibration_run_tags),
+        "timeseries_rows_per_sec.capacity_calibration.png",
         group_by_label=True,
         show_raw_replicates=True,
         band_mode="minmax",
     )
     _build_timeseries(
-        _timeseries_inputs(layer_a_run_tags),
-        "timeseries_kafka_lag_records_total.layer_a.png",
+        _timeseries_inputs(capacity_calibration_run_tags),
+        "timeseries_kafka_lag_records_total.capacity_calibration.png",
         group_by_label=True,
         show_raw_replicates=True,
         band_mode="minmax",
     )
     _build_cdf(
-        _timeseries_inputs(layer_a_run_tags),
-        "Layer A: Empirical CDF of Source-to-Emit P95 Latency",
-        "latency_cdf_source_to_emit_p95_ms.layer_a.png",
+        _timeseries_inputs(capacity_calibration_run_tags),
+        "Capacity Calibration: Empirical CDF of Source-to-Emit P95 Latency",
+        "latency_cdf_source_to_emit_p95_ms.capacity_calibration.png",
         group_by_label=True,
         show_raw_replicates=True,
     )
 
     _build_cdf(
-        _timeseries_inputs(layer_b_run_tags),
-        "Layer B: Empirical CDF of Source-to-Emit P95 Latency",
-        "latency_cdf_source_to_emit_p95_ms.layer_b.png",
-        group_by_label=True,
-        show_raw_replicates=True,
-    )
-    _build_cdf(
-        _timeseries_inputs(layer_b_baseline_run_tags),
-        "Layer B Baseline: Empirical CDF of Source-to-Emit P95 Latency",
-        "latency_cdf_source_to_emit_p95_ms.layer_b_lrfull_baseline.png",
+        _timeseries_inputs(model_feature_tradeoff_run_tags),
+        "Model Feature Tradeoff: Empirical CDF of Source-to-Emit P95 Latency",
+        "latency_cdf_source_to_emit_p95_ms.model_feature_tradeoff.png",
         group_by_label=True,
         show_raw_replicates=True,
     )

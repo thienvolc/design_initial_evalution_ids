@@ -91,6 +91,7 @@ class RuntimeMetricsTests(unittest.TestCase):
         self.assertEqual(
             METRICS_BATCH_COLUMNS,
             (
+                "benchmark_phase",
                 "kafka_partition",
                 "kafka_offset",
                 "source_to_ingest_ms",
@@ -210,6 +211,7 @@ class RuntimeMetricsTests(unittest.TestCase):
 
         payload = publish.call_args.kwargs["payload"]
         self.assertEqual(payload["batch_id"], 7)
+        self.assertEqual(payload["benchmark_phase"], "measure")
         self.assertEqual(payload["run_tag"], "run-1")
         self.assertEqual(payload["load_profile"], "rf:full")
         self.assertEqual(payload["model_name"], "rf")

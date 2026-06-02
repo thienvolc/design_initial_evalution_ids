@@ -6,20 +6,20 @@ Use this file to find the right module before changing code.
 
 - `scripts/offline/run_offline_pipeline.py`
   - launches offline preprocessing, training, and evaluation
-- `scripts/streaming/official/run_layer_a_matrix.py`
-  - runs the capacity/runtime-knob matrix
+- `scripts/streaming/official/run_capacity_calibration.py`
+  - runs the capacity calibration smoke gate by default
 - `scripts/streaming/official/run_layer_b_matrix.py`
-  - runs model and feature-set comparison
+  - runs model and feature-set smoke gate by default
 - `scripts/streaming/official/run_layer_c_matrix.py`
-  - runs checkpoint/restart recovery scenarios
+  - runs checkpoint/restart recovery smoke gate by default
 - `scripts/streaming/official/run_watermark_matrix.py`
-  - runs late-event and watermark scenarios
+  - runs late-event and watermark smoke gate by default
 - `scripts/streaming/official/run_load_quality_matrix.py`
-  - runs quality-under-load scenarios
+  - runs quality-under-load smoke gate by default
 - `scripts/streaming/official/build_timeseries_plots.py`
   - renders plots from already-produced metrics time series CSV files
 
-The streaming scripts are config-driven. Edit config objects in `src/ids_platform/streaming/config/` instead of adding CLI/YAML parsing.
+The streaming scripts are config-driven. Defaults are smoke gates; use the main config builder functions when preparing paper-scale runs.
 
 ## Paper & Analysis Scripts
 
@@ -43,8 +43,8 @@ The streaming scripts are config-driven. Edit config objects in `src/ids_platfor
   - shared benchmark config dataclasses and builders
 - `src/ids_platform/streaming/config/runtime.py`
   - runtime artifact paths, model thresholds, and `RuntimeConfig` builder
-- `src/ids_platform/streaming/config/capacity.py`
-  - Layer A capacity configs
+- `src/ids_platform/streaming/config/calibration.py`
+  - capacity calibration configs and operating-point run plans
 - `src/ids_platform/streaming/config/layer_b.py`
   - Layer B model/feature configs
 - `src/ids_platform/streaming/config/layer_c.py`
@@ -85,4 +85,4 @@ The streaming scripts are config-driven. Edit config objects in `src/ids_platfor
 - `src/ids_platform/streaming/evaluation/quality.py`
   - post-run quality summary from parquet prediction artifacts
 
-Legacy YAML profile runners, benchmark scripts, Prometheus exporter, Grafana assets, and `streaming.core` were removed from the active system.
+Legacy YAML profile runners, old benchmark scripts, external dashboard assets, and `streaming.core` were removed from the active system.

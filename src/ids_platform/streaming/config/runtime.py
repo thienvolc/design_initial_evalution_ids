@@ -100,6 +100,7 @@ def build_runtime_config(
     load_profile: str = "",
     mode: str = "model",
     starting_offsets: str = "earliest",
+    spark_master: str = "local[1]",
     max_offsets_per_trigger: int = 20_000,
     shuffle_partitions: int = 8,
     trigger_interval: str = "10 seconds",
@@ -111,6 +112,7 @@ def build_runtime_config(
     return RuntimeConfig(
         run=RuntimeRunConfig(run_tag=run_tag, input_run_tag=input_run_tag, load_profile=load_profile),
         spark=RuntimeSparkConfig(
+            master=spark_master,
             shuffle_partitions=shuffle_partitions,
             trigger_interval=trigger_interval,
         ),

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -43,6 +43,7 @@ class RuntimeProfile:
     max_offsets_per_trigger: int
     shuffle_partitions: int
     trigger_interval: str = "10 seconds"
+    spark_master: str = "local[1]"
 
     def to_legacy_dict(self) -> dict:
         return {
@@ -56,7 +57,6 @@ class RuntimeProfile:
 @dataclass(frozen=True)
 class BenchmarkRunPlan:
     benchmark: "BenchmarkRunConfig"
-    warmup: "BenchmarkRunConfig | None" = None
     summary_context: dict | None = None
 
 
@@ -110,6 +110,7 @@ def make_replay_config(
     source: ReplaySource,
     rate: ReplayRatePlan,
     timing: ReplayTimingConfig,
+    phase: str = "measure",
 ) -> ReplayConfig:
     return ReplayConfig(
         source=source,
@@ -120,10 +121,11 @@ def make_replay_config(
         ),
         rate=rate,
         timing=timing,
+        phase=phase,
     )
 
 
-def build_benchmark_run_config(
+def build_benchmark_run_from_source(
     *,
     run_tag: str,
     repeat_index: int,
@@ -137,7 +139,7 @@ def build_benchmark_run_config(
     metrics_timeout_sec: int,
     metrics_idle_sec: int,
     stream_startup_wait_sec: int,
-    stream_wait_timeout_sec: int,
+    stream_wait_timeout_sec: int = 0,
     load_profile: str = "",
     watermark_delay_sec: int = 0,
     drop_late_events: bool = False,
@@ -154,6 +156,7 @@ def build_benchmark_run_config(
         load_profile=load_profile or profile.name,
         mode=runtime_mode(mode),
         starting_offsets="latest",
+        spark_master=profile.spark_master,
         max_offsets_per_trigger=profile.max_offsets_per_trigger,
         shuffle_partitions=profile.shuffle_partitions,
         trigger_interval=profile.trigger_interval,
@@ -178,5 +181,74 @@ def build_benchmark_run_config(
         metrics_timeout_sec=metrics_timeout_sec,
         metrics_idle_sec=metrics_idle_sec,
         stream_startup_wait_sec=stream_startup_wait_sec,
+        stream_wait_timeout_sec=stream_wait_timeout(
+            row_count=source.table.num_rows,
+            rate=rate,
+            override_seconds=stream_wait_timeout_sec,
+        ),
+    )
+
+
+def build_benchmark_run_plan(
+    *,
+    run_tag: str,
+    repeat_index: int,
+    profile: RuntimeProfile,
+    source: ReplaySource,
+    rate: ReplayRatePlan,
+    timing: ReplayTimingConfig,
+    model_name: str,
+    feature_set: str,
+    metrics_timeout_sec: int,
+    metrics_idle_sec: int,
+    stream_startup_wait_sec: int,
+    stream_wait_timeout_sec: int = 0,
+    mode: str = "model",
+    load_profile: str = "",
+    watermark_delay_sec: int = 0,
+    drop_late_events: bool = False,
+    warmup_source: ReplaySource | None = None,
+    warmup_rate: ReplayRatePlan | None = None,
+    warmup_load_profile: str = "",
+    warmup_stream_wait_timeout_sec: int = 0,
+    summary_context: dict | None = None,
+) -> BenchmarkRunPlan:
+    benchmark = build_benchmark_run_from_source(
+        run_tag=run_tag,
+        repeat_index=repeat_index,
+        profile=profile,
+        source=source,
+        rate=rate,
+        timing=timing,
+        model_name=model_name,
+        feature_set=feature_set,
+        mode=mode,
+        metrics_timeout_sec=metrics_timeout_sec,
+        metrics_idle_sec=metrics_idle_sec,
+        stream_startup_wait_sec=stream_startup_wait_sec,
         stream_wait_timeout_sec=stream_wait_timeout_sec,
+        load_profile=load_profile,
+        watermark_delay_sec=watermark_delay_sec,
+        drop_late_events=drop_late_events,
+    )
+    if warmup_source is not None and warmup_rate is not None:
+        benchmark = replace(
+            benchmark,
+            warmup_replay=make_replay_config(
+                run_tag=run_tag,
+                runtime=benchmark.runtime,
+                source=warmup_source,
+                rate=warmup_rate,
+                timing=timing,
+                phase="warmup",
+            ),
+            warmup_wait_timeout_sec=stream_wait_timeout(
+                row_count=warmup_source.table.num_rows,
+                rate=warmup_rate,
+                override_seconds=warmup_stream_wait_timeout_sec,
+            ),
+        )
+    return BenchmarkRunPlan(
+        benchmark=benchmark,
+        summary_context=summary_context,
     )

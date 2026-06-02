@@ -23,14 +23,14 @@ Direct examples:
 
 ## Streaming Flow
 
-Streaming uses Python config modules, not YAML profiles or CLI matrices.
+Streaming uses Python config modules, not YAML profiles or CLI matrices. Default matrix scripts run smoke gates only.
 
 Active flow:
 
 1. Edit/select config in `src/ids_platform/streaming/config/`.
 2. Start Docker services.
 3. Run an official matrix script.
-4. Read summary CSVs, metrics time series, parquet predictions, and plots from `artifacts/streaming/`.
+4. Read smoke summary CSVs, metrics time series, parquet predictions, and plots from `artifacts/streaming/`.
 
 Start services:
 
@@ -38,15 +38,19 @@ Start services:
 docker compose up -d zookeeper kafka ids-dev
 ```
 
-Run matrices:
+Run smoke gates:
 
 ```powershell
-docker compose exec -T ids-dev python scripts/streaming/official/run_layer_a_matrix.py
+docker compose exec -T ids-dev python scripts/streaming/official/run_capacity_calibration.py
 docker compose exec -T ids-dev python scripts/streaming/official/run_layer_b_matrix.py
 docker compose exec -T ids-dev python scripts/streaming/official/run_watermark_matrix.py
 docker compose exec -T ids-dev python scripts/streaming/official/run_layer_c_matrix.py
 docker compose exec -T ids-dev python scripts/streaming/official/run_load_quality_matrix.py
 ```
+
+For paper-scale runs, switch the selected config object in the relevant module from the smoke preset to the corresponding `build_*_main_config()` result before running the script.
+
+Use capacity calibration as the operating-point benchmark. The calibration summary marks each target RPS as SLO pass/fail using throughput, rows processed, p50/p95 latency, batch wall time, and Kafka lag.
 
 Build plots after matrix runs:
 
@@ -63,4 +67,4 @@ Build plots after matrix runs:
 - Prediction parquet artifacts: `artifacts/streaming/predictions/`
 - Plots: `artifacts/streaming/plots/`
 
-Prometheus/Grafana and YAML profile execution were removed from the active runbook because they were not part of the authoritative benchmark path.
+External dashboard assets and YAML profile execution were removed from the active runbook because they were not part of the authoritative benchmark path.

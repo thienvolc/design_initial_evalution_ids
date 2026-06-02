@@ -14,6 +14,7 @@ from ids_platform.streaming.replay.serializer import replay_record_to_json
 @dataclass(frozen=True, slots=True)
 class ReplayRecordBuilder:
     run_tag: str
+    phase: str = "measure"
 
     def build_replay_record(self, row: pd.Series, *, row_index: int) -> pd.Series:
         ingest_time = time.time()
@@ -26,6 +27,7 @@ class ReplayRecordBuilder:
         record["source_ingest_epoch_ms"] = int(ingest_time * 1000)
         record["replay_run_tag"] = self.run_tag
         record["replay_row_index"] = row_index
+        record["benchmark_phase"] = self.phase
         return record
 
     def build_input_sentinel_record(self) -> dict[str, Any]:
@@ -37,6 +39,7 @@ class ReplayRecordBuilder:
         return {
             "flow_id": f"{run_tag}__input_sentinel",
             "replay_run_tag": run_tag,
+            "benchmark_phase": "control",
             "event_time": now_iso,
             "timestamp": now_iso,
             "source_ingest_ts": now_iso,

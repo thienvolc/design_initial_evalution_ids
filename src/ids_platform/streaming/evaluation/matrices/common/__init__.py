@@ -202,6 +202,20 @@ def flatten_metrics_payload(payload: dict) -> dict:
     return outputs.flatten_metrics_payload(payload, safe_float=_safe_float)
 
 
+def benchmark_phase(payload: dict) -> str:
+    phase = str(payload.get("benchmark_phase") or "").strip().lower()
+    return "warmup" if phase == "warmup" else "measure"
+
+
+def filter_metrics_by_phase(metrics_rows: list[dict], phase: str = "measure") -> list[dict]:
+    expected = benchmark_phase({"benchmark_phase": phase})
+    return [
+        payload
+        for payload in metrics_rows
+        if is_terminal_metric_payload(payload) or benchmark_phase(payload) == expected
+    ]
+
+
 def _sanitize_run_tag(run_tag: str) -> str:
     return outputs.sanitize_run_tag(run_tag)
 
@@ -258,8 +272,12 @@ def summarize_runtime_metrics(metrics_rows: list[dict]) -> dict:
     )
 
 
-def summarize_prediction_quality(artifact_output: str | Path) -> dict:
-    return quality.summarize_prediction_quality(Path(artifact_output))
+def summarize_prediction_quality(artifact_output: str | Path, *, phase: str = "measure") -> dict:
+    return quality.summarize_prediction_quality(Path(artifact_output), phase=phase)
+
+
+def apply_quality_summary_fields(row: dict, quality_summary: dict | None) -> None:
+    quality.apply_quality_summary_fields(row, quality_summary)
 
 
 def annotate_sut_debug_summary(row: dict) -> dict:

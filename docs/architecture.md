@@ -2,40 +2,41 @@
 
 ## Project Shape
 
-This project is a research-oriented Python codebase with two major execution paths:
+This project has two active execution paths:
 
 - offline pipeline
   - preprocess data, train models, evaluate offline, and persist model artifacts
 - streaming pipeline
-  - replay parquet traffic into Kafka, run Spark Structured Streaming scoring, collect scenario summaries, and build final evaluation reports
+  - replay parquet traffic into Kafka, run Spark Structured Streaming scoring, collect matrix summaries, and build report artifacts
 
-It is a single-repo system with script entrypoints, shared library modules under `src/ids_platform`, Docker-based infrastructure, and file-based experiment artifacts.
+The codebase uses Python modules under `src/ids_platform`, thin script entrypoints, Docker infrastructure, and file-based experiment artifacts.
 
 ## Major Runtime Components
 
 - offline training
-  - creates model artifacts and feature metadata used later by streaming
-- replay service
-  - reads parquet traffic and publishes records to Kafka
+  - creates model artifacts and feature metadata used by streaming
+- replay
+  - reads parquet traffic and publishes records plus an input sentinel to Kafka
 - SUT runtime
-  - Spark Structured Streaming job that consumes Kafka, scores records, and emits predictions plus debug telemetry
+  - consumes Kafka records, scores them, writes prediction parquet, and publishes operational `ids.metrics`
 - evaluation matrices
-  - orchestrate repeatable experiments across Layer A, Layer B, Layer C, watermark, and load-quality scenarios
-
-- observability
-  - Prometheus exporter, Prometheus, and Grafana for live runtime telemetry
+  - orchestrate capacity calibration, Layer B, Layer C, watermark, and load-quality runs
+- report artifacts
+  - summary CSVs, metrics time series, prediction parquet, and plots
 
 ## Boundary: SUT vs Evaluation System
 
 Use this split consistently:
 
 - SUT
-  - `run_structured_streaming.py`
   - input: replayed Kafka traffic
-  - output: predictions parquet/Kafka plus debug telemetry on `ids.metrics`
-  - matrix runners aggregating `ids.metrics` into summary CSVs
+  - outputs: prediction parquet and operational `ids.metrics`
+- evaluation system
+  - orchestrates replay/runtime
+  - reads `ids.metrics` and prediction parquet
+  - writes matrix summary CSVs and plots
 
-Prometheus and Grafana are not part of the official evaluation pipeline. They support live monitoring and debugging only.
+Default matrix scripts are smoke gates. They prove the flow starts, replays, stops on sentinel, emits metrics, and writes summary rows. They are not paper-scale benchmark evidence.
 
 ## Data Flow
 
@@ -45,29 +46,21 @@ offline parquet/dataset
   -> model artifacts + feature manifest + thresholds
 
 test parquet
-  -> replay_parquet_to_kafka.py
+  -> replay config/source factory
   -> Kafka input topic
-  -> run_structured_streaming.py (SUT)
-  -> prediction parquet / prediction topic
-  -> ids.metrics debug telemetry topic
+  -> runtime SUT
+  -> prediction parquet
+  -> ids.metrics operational topic
 
 matrix runners
-  -> orchestrate replay + SUT runs
-  -> collect ids.metrics-derived summaries
-  -> write summary CSVs
-
-Prometheus exporter
-  -> read ids.metrics
-  -> expose live runtime telemetry to Prometheus/Grafana
+  -> orchestrate replay + runtime
+  -> collect metrics + summarize parquet quality
+  -> write summary CSVs and metrics time series
 ```
 
-## Design Patterns in Use
+## Design Rules
 
-- thin script entrypoints
-  - `scripts/` provides CLI launchers, `src/` holds implementation
-- artifact-driven experimentation
-  - experiments communicate largely through Kafka topics, summary CSVs, and report files
-- orchestration by subprocess
-  - matrix and profile runners launch lower-level scripts rather than embedding all logic in one process
-- separation by responsibility
-  - runtime, replay, matrices, orchestration, metrics, and observability are split into separate modules
+- Keep script entrypoints thin and config-driven.
+- Keep smoke gates separate from paper-scale benchmark configs.
+- Treat summary CSVs, metrics time series, and prediction parquet as the active source of truth.
+- Do not reintroduce YAML profile parsing, old benchmark scripts, or dashboard-driven evidence.

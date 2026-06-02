@@ -71,15 +71,6 @@ def _collect_after_fault(config: LayerCScenarioConfig, *, fault_epoch_ms: int) -
     )
 
 
-def _post_replay_settle_seconds(trigger_interval: str) -> float:
-    parts = str(trigger_interval or "").strip().split()
-    try:
-        interval_seconds = float(parts[0])
-    except Exception:
-        interval_seconds = 5.0
-    return min(max(interval_seconds * 3.0, 5.0), 30.0)
-
-
 def _finalize_row(row: dict, metrics_rows: list[dict], *, fault_started_at: float) -> dict:
     if not metrics_rows:
         row["status"] = "metrics_missing"
@@ -116,7 +107,6 @@ def run_layer_c_scenario(config: LayerCScenarioConfig) -> tuple[dict, list[dict]
         job = _apply_fault(config, job)
         run_replay_job(config.post_fault_replay)
         publish_input_sentinel(config.post_fault_replay.runtime)
-        time.sleep(_post_replay_settle_seconds(config.runtime.spark.trigger_interval))
         job.wait(timeout_sec=config.stream_wait_timeout_sec)
 
         metrics_rows = _collect_after_fault(config, fault_epoch_ms=fault_epoch_ms)

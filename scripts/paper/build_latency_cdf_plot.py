@@ -72,28 +72,15 @@ def _resolve_path(raw_path: str) -> Path:
 
 def _short_label_from_run_tag(run_tag: str) -> str:
     normalized = str(run_tag).lower()
-    if normalized.startswith("layera_"):
-        match = re.search(r"_(a_(low|mid|high))_", normalized)
+    if normalized.startswith("capacitycalibration_"):
+        match = re.search(r"_(pass_through|random_forest_full)_([0-9]+)rps_", normalized)
         if match:
-            return f"A_{match.group(2)}"
-    if normalized.startswith("layerb_"):
-        match = re.search(
-            r"layerb_.*?_(logistic_regression|random_forest|gradient_boosting)_(reduced|full)_",
-            normalized,
-        )
+            mode = "pass-through" if match.group(1) == "pass_through" else "RF-Full"
+            return f"{mode} {match.group(2)} rps"
+    if normalized.startswith("modelfeaturetradeoff_"):
+        match = re.search(r"_(rf_17|rf17|rf-17)_([0-9]+)rps_", normalized)
         if match:
-            model_name = match.group(1)
-            feature_set = match.group(2)
-            if model_name == "logistic_regression":
-                prefix = "LR"
-            elif model_name == "random_forest":
-                prefix = "RF"
-            elif model_name == "gradient_boosting":
-                prefix = "GBT"
-            else:
-                prefix = model_name
-            suffix = "F" if feature_set == "full" else "R"
-            return f"{prefix}-{suffix}"
+            return f"RF-17 {match.group(2)} rps"
     if normalized.startswith("layerc_"):
         match = re.search(r"layerc_\d+_([a-z_]+)_", normalized)
         if match:

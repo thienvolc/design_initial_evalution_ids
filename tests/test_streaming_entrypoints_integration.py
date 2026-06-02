@@ -33,8 +33,8 @@ class StreamingEntrypointIntegrationTests(unittest.TestCase):
         scripts = [
             "scripts/streaming/official/run_structured_streaming.py",
             "scripts/streaming/official/replay_parquet_to_kafka.py",
-            "scripts/streaming/official/run_layer_a_matrix.py",
-            "scripts/streaming/official/run_layer_b_matrix.py",
+            "scripts/streaming/official/run_capacity_calibration.py",
+            "scripts/streaming/official/run_model_feature_tradeoff.py",
             "scripts/streaming/official/run_layer_c_matrix.py",
             "scripts/streaming/official/run_watermark_matrix.py",
             "scripts/streaming/official/run_load_quality_matrix.py",

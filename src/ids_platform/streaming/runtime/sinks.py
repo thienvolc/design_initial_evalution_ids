@@ -10,6 +10,7 @@ PREDICTION_PARQUET_COLUMNS = (
     "model_name",
     "feature_set",
     "run_tag",
+    "benchmark_phase",
     "prediction_label",
     "prediction_score",
     "threshold_used",
@@ -121,7 +122,7 @@ def group_runtime_queries(
     if metrics_query is not None:
         data_queries.append((metrics_query, "metrics"))
     all_queries = (
-        [(sentinel_query, "input_sentinel")] + data_queries
+        data_queries + [(sentinel_query, "input_sentinel")]
         if sentinel_query is not None
         else list(data_queries)
     )

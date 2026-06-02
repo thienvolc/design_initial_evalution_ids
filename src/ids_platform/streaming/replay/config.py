@@ -93,6 +93,7 @@ class ReplayConfig:
     runtime: ReplayRuntimeConfig
     rate: ReplayRatePlan
     timing: ReplayTimingConfig
+    phase: str = "measure"
 
 
 @dataclass(frozen=True, slots=True)

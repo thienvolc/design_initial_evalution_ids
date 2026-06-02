@@ -13,7 +13,7 @@ def run_replay_job(config: ReplayConfig) -> int:
     started_at = time.perf_counter()
 
     publisher = ReplayPublisher(config.runtime)
-    record_builder = ReplayRecordBuilder(config.runtime.run_tag)
+    record_builder = ReplayRecordBuilder(config.runtime.run_tag, phase=config.phase)
     perturbation = ReplayPerturbation(config.timing)
     rng = random.Random(int(config.timing.random_seed))
 

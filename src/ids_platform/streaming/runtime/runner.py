@@ -45,6 +45,7 @@ class StructuredStreamingRunner:
                         + ", ".join(inactive)
                     )
                 time.sleep(0.5)
+            self._drain_queries(self.queries.data_queries)
         finally:
             self.stop()
 
@@ -67,3 +68,9 @@ class StructuredStreamingRunner:
                 if query.isActive:
                     query.stop()
                 query.awaitTermination(QUERY_STOP_TIMEOUT_SEC)
+
+    @staticmethod
+    def _drain_queries(queries: list[tuple[object, str]]) -> None:
+        for query, _name in queries:
+            if query is not None and query.isActive:
+                query.processAllAvailable()

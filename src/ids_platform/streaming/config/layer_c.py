@@ -14,8 +14,7 @@ from ids_platform.streaming.config.common import (
     SMOKE_ROW_LIMIT,
     SMOKE_STREAM_STARTUP_WAIT_SEC,
     SMOKE_STREAM_WAIT_TIMEOUT_SEC,
-    build_benchmark_run_config,
-    stream_wait_timeout,
+    build_benchmark_run_from_source,
 )
 from ids_platform.streaming.replay.config import RateStep, ReplayConfig, ReplayRatePlan, ReplaySourceFactory
 from ids_platform.streaming.runtime.config import RuntimeConfig
@@ -75,7 +74,7 @@ def _scenario_config(
     profile = RuntimeProfile(scenario, 20_000, 8, "10 seconds")
     warmup_source = ReplaySourceFactory(batch_size=batch_size, row_limit=warmup_rows).create()
     post_fault_source = ReplaySourceFactory(batch_size=batch_size, row_limit=post_fault_rows).create()
-    warmup = build_benchmark_run_config(
+    warmup = build_benchmark_run_from_source(
         run_tag=run_tag,
         repeat_index=1,
         profile=profile,
@@ -87,14 +86,10 @@ def _scenario_config(
         metrics_timeout_sec=0,
         metrics_idle_sec=0,
         stream_startup_wait_sec=stream_startup_wait_sec,
-        stream_wait_timeout_sec=stream_wait_timeout(
-            row_count=warmup_source.table.num_rows,
-            rate=warmup_rate,
-            override_seconds=stream_wait_timeout_sec,
-        ),
+        stream_wait_timeout_sec=stream_wait_timeout_sec,
         load_profile=f"{scenario}_warmup",
     )
-    post_fault = build_benchmark_run_config(
+    post_fault = build_benchmark_run_from_source(
         run_tag=run_tag,
         repeat_index=1,
         profile=profile,
@@ -106,11 +101,7 @@ def _scenario_config(
         metrics_timeout_sec=metrics_timeout_sec,
         metrics_idle_sec=metrics_idle_sec,
         stream_startup_wait_sec=stream_startup_wait_sec,
-        stream_wait_timeout_sec=stream_wait_timeout(
-            row_count=post_fault_source.table.num_rows,
-            rate=post_fault_rate,
-            override_seconds=stream_wait_timeout_sec,
-        ),
+        stream_wait_timeout_sec=stream_wait_timeout_sec,
         load_profile=scenario,
     )
     return LayerCScenarioConfig(

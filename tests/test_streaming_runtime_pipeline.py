@@ -27,6 +27,7 @@ class RuntimePipelineContractTests(unittest.TestCase):
             (
                 ("flow_id", "string"),
                 ("replay_run_tag", "string"),
+                ("benchmark_phase", "string"),
                 ("is_control_record", "integer"),
                 ("control_type", "string"),
                 ("event_time", "string"),

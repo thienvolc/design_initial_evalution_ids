@@ -22,7 +22,7 @@
 ### Phase 1: Streaming Handler Cleanup
 - [ ] Keep existing CLI flags and YAML profile inputs unchanged.
 - [ ] Extract a shared trial handler for the repeated matrix flow: build run context, optional warmup, stream/replay execution, metrics collection, timeseries write, summary row materialization.
-- [ ] Refactor `layer_a_matrix.py` to call the shared trial handler while preserving output CSV columns.
+- [ ] Refactor capacity calibration to call the shared trial handler while preserving output CSV columns.
 - [ ] Refactor `layer_b_matrix.py` to call the shared trial handler while preserving output CSV columns.
 - [ ] Refactor `load_quality_matrix.py` only after A/B prove the shared handler is stable.
 - [ ] Leave `watermark_matrix.py` untouched until the main handler abstraction has settled.
@@ -61,20 +61,20 @@
 ## Phase 1 Detailed Plan: Streaming Handler Cleanup
 
 ### Goal
-- [ ] Reduce duplicated orchestration logic in Layer A, Layer B, and load-quality matrices without changing user-facing commands or existing profile YAML.
+- [ ] Reduce duplicated orchestration logic in capacity calibration, Layer B, and load-quality matrices without changing user-facing commands or existing profile YAML.
 - [ ] Make the handler layer explicit before changing inputs.
 - [ ] Preserve current summary CSV schemas so existing paper scripts and tests do not break.
 
 ### Non-Goals
-- [ ] Do not rename Layer A/B/load files in this phase.
+- [ ] Do not rename Layer B/load files in this phase.
 - [ ] Do not change `local_profiles.yaml` or `streaming_profiles.yaml` semantics in this phase.
 - [ ] Do not modify `structured_streaming_job.py` in this phase unless a test reveals a blocking bug.
 - [ ] Do not remove watermark, Layer C, benchmark, or paper scripts in this phase.
 
 ### Step 1: Baseline the Current Flow
-- [ ] Read `layer_a_matrix.py`, `layer_b_matrix.py`, `load_quality_matrix.py`, and throughput helpers.
+- [ ] Read capacity calibration, `layer_b_matrix.py`, `load_quality_matrix.py`, and throughput helpers.
 - [ ] Document the repeated flow in code comments or a short internal note before editing.
-- [ ] Capture current summary columns for Layer A, Layer B, and load-quality outputs.
+- [ ] Capture current summary columns for capacity calibration, Layer B, and load-quality outputs.
 - [ ] Run existing unit tests that do not require Kafka/Spark runtime dependencies.
 - [ ] Record current failing tests caused by missing environment dependencies separately from refactor failures.
 
@@ -86,12 +86,12 @@
 - [ ] Add a shared function for metrics collection plus timeseries materialization.
 - [ ] Keep row-building delegated to existing row builders or matrix-specific functions.
 
-### Step 3: Refactor Layer A First
-- [ ] Replace only the duplicated execution body inside `layer_a_matrix.run`.
+### Step 3: Refactor Capacity Calibration First
+- [ ] Replace only the duplicated execution body inside capacity calibration.
 - [ ] Keep `_parse_profiles`, `_aggregate_row`, and `_reported_model_label` behavior unchanged.
 - [ ] Verify generated command arguments match the pre-refactor flow.
-- [ ] Verify Layer A summary column names remain unchanged.
-- [ ] Run focused tests and `run_layer_a_matrix.py --help`.
+- [ ] Verify capacity calibration summary column names remain unchanged.
+- [ ] Run focused tests and `run_capacity_calibration.py --help`.
 
 ### Step 4: Refactor Layer B Second
 - [ ] Reuse the shared trial handler with model/feature pair identity.

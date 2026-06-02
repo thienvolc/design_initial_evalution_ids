@@ -4,6 +4,7 @@ from __future__ import annotations
 RAW_BASE_FIELDS = (
     ("flow_id", "string"),
     ("replay_run_tag", "string"),
+    ("benchmark_phase", "string"),
     ("is_control_record", "integer"),
     ("control_type", "string"),
     ("event_time", "string"),

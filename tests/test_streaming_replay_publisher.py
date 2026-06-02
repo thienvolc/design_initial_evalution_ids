@@ -38,6 +38,7 @@ class ReplayPublisherTests(unittest.TestCase):
         self.assertEqual(record["flow_id"], "flow-3")
         self.assertEqual(record["replay_run_tag"], "run-1")
         self.assertEqual(record["replay_row_index"], 3)
+        self.assertEqual(record["benchmark_phase"], "measure")
         self.assertIn("source_ingest_epoch_ms", record)
 
     def test_publisher_raises_when_flush_leaves_messages(self) -> None:

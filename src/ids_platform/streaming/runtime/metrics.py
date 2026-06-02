@@ -23,12 +23,18 @@ _METRICS_PRODUCER_CACHE: dict[str, _KafkaProducerLike] = {}
 _METRICS_PUBLISH_FLUSH_TIMEOUT_SEC = 1.0
 
 METRICS_BATCH_COLUMNS = (
+    "benchmark_phase",
     "kafka_partition",
     "kafka_offset",
     "source_to_ingest_ms",
     "event_lateness_ms",
     "is_late_event",
 )
+
+
+def _normalise_benchmark_phase(value) -> str:
+    phase = str(value or "").strip().lower()
+    return "warmup" if phase == "warmup" else "measure"
 
 
 def collect_batch_offsets(batch_df):
@@ -96,6 +102,7 @@ def _build_latency_summary(*, stat, batch_wall_ms: float) -> dict:
 def _build_batch_metrics_payload(
     *,
     batch_id: int,
+    benchmark_phase: str,
     stat,
     row_count: int,
     batch_wall_seconds: float,
@@ -116,6 +123,7 @@ def _build_batch_metrics_payload(
         "ts_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "ts_epoch_ms": metric_ts_epoch_ms,
         "batch_id": int(batch_id),
+        "benchmark_phase": _normalise_benchmark_phase(benchmark_phase),
         "run_tag": config.run.run_tag,
         "load_profile": resolved_load_profile,
         "model_name": reported_model_name,
@@ -182,45 +190,81 @@ class MetricsBatchWriter:
 
     def write(self, batch_df, batch_id: int) -> None:
         metrics_batch_df = batch_df.select(*METRICS_BATCH_COLUMNS).cache()
+
+        try:
+            for benchmark_phase in self._batch_phases(metrics_batch_df):
+                phase_df = self._phase_df(metrics_batch_df, benchmark_phase)
+                if phase_df is None:
+                    continue
+                self._publish_phase_metrics(phase_df, batch_id, benchmark_phase)
+        finally:
+            metrics_batch_df.unpersist()
+
+    @staticmethod
+    def _batch_phases(metrics_batch_df) -> tuple[str, ...]:
+        try:
+            rows = metrics_batch_df.select("benchmark_phase").distinct().collect()
+        except AttributeError:
+            return ("measure",)
+        phases = {
+            _normalise_benchmark_phase(row["benchmark_phase"])
+            for row in rows
+        }
+        return tuple(sorted(phases)) or ("measure",)
+
+    @staticmethod
+    def _phase_df(metrics_batch_df, benchmark_phase: str):
+        if benchmark_phase == "measure" and not hasattr(metrics_batch_df, "filter"):
+            return metrics_batch_df
+        if not hasattr(metrics_batch_df, "filter"):
+            return None
+
+        from pyspark.sql import functions as F
+
+        normalized_phase = F.when(
+            F.lower(F.coalesce(F.col("benchmark_phase"), F.lit(""))) == F.lit("warmup"),
+            F.lit("warmup"),
+        ).otherwise(F.lit("measure"))
+        return metrics_batch_df.filter(normalized_phase == F.lit(benchmark_phase))
+
+    def _publish_phase_metrics(self, phase_df, batch_id: int, benchmark_phase: str) -> None:
         batch_start = time.perf_counter()
         metric_ts_epoch_ms = int(time.time() * 1000)
 
-        try:
-            offsets = collect_batch_offsets(metrics_batch_df)
-            stat = collect_batch_statistics(metrics_batch_df)
-            row_count = int(stat["rows"] or 0)
-            if row_count == 0:
-                return
+        offsets = collect_batch_offsets(phase_df)
+        stat = collect_batch_statistics(phase_df)
+        row_count = int(stat["rows"] or 0)
+        if row_count == 0:
+            return
 
-            kafka_lag = probe_kafka_lag(
-                bootstrap_servers=self.publisher.bootstrap_servers,
-                topic=self.input_topic,
-                offsets=offsets,
-            )
-            proc_metrics = probe_process_metrics()
-            executor_metrics = probe_executor_memory_utilization(self.spark)
-            batch_wall_seconds = max(time.perf_counter() - batch_start, 1e-9)
-            payload = _build_batch_metrics_payload(
-                batch_id=batch_id,
-                stat=stat,
-                row_count=row_count,
-                batch_wall_seconds=batch_wall_seconds,
-                metric_ts_epoch_ms=metric_ts_epoch_ms,
-                config=self.config,
-                resolved_load_profile=self.resolved_load_profile,
-                reported_model_name=self.reported_model_name,
-                max_offsets_per_trigger=self.max_offsets_per_trigger,
-                shuffle_partitions=self.shuffle_partitions,
-                trigger_interval=self.trigger_interval,
-                watermark_delay_sec=self.watermark_delay_sec,
-                kafka_lag=kafka_lag,
-                proc_metrics=proc_metrics,
-                executor_metrics=executor_metrics,
-            )
+        kafka_lag = probe_kafka_lag(
+            bootstrap_servers=self.publisher.bootstrap_servers,
+            topic=self.input_topic,
+            offsets=offsets,
+        )
+        proc_metrics = probe_process_metrics()
+        executor_metrics = probe_executor_memory_utilization(self.spark)
+        batch_wall_seconds = max(time.perf_counter() - batch_start, 1e-9)
+        payload = _build_batch_metrics_payload(
+            batch_id=batch_id,
+            benchmark_phase=benchmark_phase,
+            stat=stat,
+            row_count=row_count,
+            batch_wall_seconds=batch_wall_seconds,
+            metric_ts_epoch_ms=metric_ts_epoch_ms,
+            config=self.config,
+            resolved_load_profile=self.resolved_load_profile,
+            reported_model_name=self.reported_model_name,
+            max_offsets_per_trigger=self.max_offsets_per_trigger,
+            shuffle_partitions=self.shuffle_partitions,
+            trigger_interval=self.trigger_interval,
+            watermark_delay_sec=self.watermark_delay_sec,
+            kafka_lag=kafka_lag,
+            proc_metrics=proc_metrics,
+            executor_metrics=executor_metrics,
+        )
 
-            self.publisher.publish(payload)
-        finally:
-            metrics_batch_df.unpersist()
+        self.publisher.publish(payload)
 
 
 def make_metrics_batch_writer(
