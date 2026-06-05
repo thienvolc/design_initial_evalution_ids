@@ -1,4 +1,0 @@
-%3|1780219286.035|FAIL|rdkafka#producer-1| [thrd:kafka:29092/bootstrap]: kafka:29092/bootstrap: Failed to resolve 'kafka:29092': No such host is known.  (after 7284ms in state CONNECT)
-%3|1780219294.386|FAIL|rdkafka#producer-1| [thrd:kafka:29092/bootstrap]: kafka:29092/bootstrap: Failed to resolve 'kafka:29092': No such host is known.  (after 7243ms in state CONNECT, 1 identical error(s) suppressed)
-%3|1780219327.930|FAIL|rdkafka#producer-1| [thrd:kafka:29092/bootstrap]: kafka:29092/bootstrap: Failed to resolve 'kafka:29092': No such host is known.  (after 7266ms in state CONNECT, 4 identical error(s) suppressed)
-%3|1780219361.564|FAIL|rdkafka#producer-1| [thrd:kafka:29092/bootstrap]: kafka:29092/bootstrap: Failed to resolve 'kafka:29092': No such host is known.  (after 7254ms in state CONNECT, 4 identical error(s) suppressed)
