@@ -1,17 +1,25 @@
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ids_platform.streaming.config.runtime import build_runtime_config as _build_runtime_config
+from ids_platform.streaming.config.runtime import (
+    PRIMARY_STREAMING_FEATURE_SET,
+    PRIMARY_STREAMING_MODEL_LABEL,
+    PRIMARY_STREAMING_MODEL_NAME,
+    STREAMING_PREDICTION_ROOT,
+    build_runtime_config as _build_runtime_config,
+)
 from ids_platform.streaming.replay.config import (
     RateStep,
     ReplayConfig,
     ReplayRatePlan,
     ReplayRuntimeConfig,
     ReplaySource,
+    ReplaySourcePlan,
     ReplayTimingConfig,
 )
 from ids_platform.streaming.runtime.config import RuntimeConfig
@@ -29,8 +37,8 @@ SMOKE_RPS = 500
 SMOKE_DURATION_SEC = 2
 SMOKE_STREAM_STARTUP_WAIT_SEC = 10
 SMOKE_STREAM_WAIT_TIMEOUT_SEC = 90
-SMOKE_METRICS_TIMEOUT_SEC = 120
-SMOKE_METRICS_IDLE_SEC = 5
+SMOKE_COLLECTOR_TIMEOUT_SEC = 120
+SMOKE_COLLECTOR_IDLE_SEC = 5
 SMOKE_REPLAY_RATE = ReplayRatePlan(
     rows_per_sec=0.0,
     schedule=(RateStep(rows_per_sec=SMOKE_RPS, duration_sec=SMOKE_DURATION_SEC),),
@@ -44,14 +52,6 @@ class RuntimeProfile:
     shuffle_partitions: int
     trigger_interval: str = "10 seconds"
     spark_master: str = "local[1]"
-
-    def to_legacy_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "max_offsets_per_trigger": int(self.max_offsets_per_trigger),
-            "shuffle_partitions": int(self.shuffle_partitions),
-            "trigger_interval": self.trigger_interval,
-        }
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,10 @@ DEFAULT_TIMING_CONFIG = ReplayTimingConfig(
     reorder_window_size=0,
     late_event_ratio=0.0,
     late_event_max_sec=0.0,
+)
+TOPIC_NAMESPACE = safe_tag(
+    os.environ.get("IDS_STREAMING_TOPIC_NAMESPACE", "").strip()
+    or str(int(time.time() * 1000))
 )
 
 def benchmark_run_tag(
@@ -107,7 +111,7 @@ def make_replay_config(
     *,
     run_tag: str,
     runtime: RuntimeConfig,
-    source: ReplaySource,
+    source: ReplaySource | ReplaySourcePlan,
     rate: ReplayRatePlan,
     timing: ReplayTimingConfig,
     phase: str = "measure",
@@ -125,29 +129,42 @@ def make_replay_config(
     )
 
 
+def run_input_topic(run_tag: str) -> str:
+    return f"ids.raw.flows.{safe_tag(run_tag)}.{TOPIC_NAMESPACE}"
+
+
+def run_prediction_topic(run_tag: str) -> str:
+    return f"ids.predictions.{safe_tag(run_tag)}.{TOPIC_NAMESPACE}"
+
+
+def run_artifact_output(run_tag: str) -> Path:
+    return STREAMING_PREDICTION_ROOT / safe_tag(run_tag)
+
+
 def build_benchmark_run_from_source(
     *,
     run_tag: str,
     repeat_index: int,
     profile: RuntimeProfile,
-    source: ReplaySource,
+    source: ReplaySource | ReplaySourcePlan,
     rate: ReplayRatePlan,
     timing: ReplayTimingConfig,
     model_name: str,
     feature_set: str,
     mode: str = "model",
-    metrics_timeout_sec: int,
-    metrics_idle_sec: int,
+    collector_timeout_sec: int,
+    collector_idle_sec: int,
     stream_startup_wait_sec: int,
     stream_wait_timeout_sec: int = 0,
     load_profile: str = "",
-    watermark_delay_sec: int = 0,
-    drop_late_events: bool = False,
+    topic_partitions: int = 1,
 ) -> "BenchmarkRunConfig":
     from ids_platform.streaming.evaluation.matrices.throughput.benchmark_run import (
         BenchmarkRunConfig,
     )
 
+    input_topic = run_input_topic(run_tag)
+    prediction_topic = run_prediction_topic(run_tag)
     runtime = _build_runtime_config(
         model_name=model_name,
         feature_set=feature_set,
@@ -155,13 +172,13 @@ def build_benchmark_run_from_source(
         input_run_tag=run_tag,
         load_profile=load_profile or profile.name,
         mode=runtime_mode(mode),
+        input_topic=input_topic,
+        prediction_topic=prediction_topic,
         starting_offsets="latest",
         spark_master=profile.spark_master,
         max_offsets_per_trigger=profile.max_offsets_per_trigger,
         shuffle_partitions=profile.shuffle_partitions,
         trigger_interval=profile.trigger_interval,
-        watermark_delay_sec=watermark_delay_sec,
-        drop_late_events=drop_late_events,
         reset_outputs=True,
     )
     return BenchmarkRunConfig(
@@ -178,14 +195,16 @@ def build_benchmark_run_from_source(
         repeat_index=repeat_index,
         model_label=model_label(model_name=model_name, mode=mode),
         feature_set=feature_set,
-        metrics_timeout_sec=metrics_timeout_sec,
-        metrics_idle_sec=metrics_idle_sec,
+        collector_timeout_sec=collector_timeout_sec,
+        collector_idle_sec=collector_idle_sec,
         stream_startup_wait_sec=stream_startup_wait_sec,
         stream_wait_timeout_sec=stream_wait_timeout(
-            row_count=source.table.num_rows,
+            row_count=source.expected_rows,
             rate=rate,
             override_seconds=stream_wait_timeout_sec,
         ),
+        artifact_output=run_artifact_output(run_tag),
+        topic_partitions=max(int(topic_partitions), 1),
     )
 
 
@@ -194,23 +213,22 @@ def build_benchmark_run_plan(
     run_tag: str,
     repeat_index: int,
     profile: RuntimeProfile,
-    source: ReplaySource,
+    source: ReplaySource | ReplaySourcePlan,
     rate: ReplayRatePlan,
     timing: ReplayTimingConfig,
     model_name: str,
     feature_set: str,
-    metrics_timeout_sec: int,
-    metrics_idle_sec: int,
+    collector_timeout_sec: int,
+    collector_idle_sec: int,
     stream_startup_wait_sec: int,
     stream_wait_timeout_sec: int = 0,
     mode: str = "model",
     load_profile: str = "",
-    watermark_delay_sec: int = 0,
-    drop_late_events: bool = False,
-    warmup_source: ReplaySource | None = None,
+    warmup_source: ReplaySource | ReplaySourcePlan | None = None,
     warmup_rate: ReplayRatePlan | None = None,
     warmup_load_profile: str = "",
     warmup_stream_wait_timeout_sec: int = 0,
+    topic_partitions: int = 1,
     summary_context: dict | None = None,
 ) -> BenchmarkRunPlan:
     benchmark = build_benchmark_run_from_source(
@@ -223,13 +241,12 @@ def build_benchmark_run_plan(
         model_name=model_name,
         feature_set=feature_set,
         mode=mode,
-        metrics_timeout_sec=metrics_timeout_sec,
-        metrics_idle_sec=metrics_idle_sec,
+        collector_timeout_sec=collector_timeout_sec,
+        collector_idle_sec=collector_idle_sec,
         stream_startup_wait_sec=stream_startup_wait_sec,
         stream_wait_timeout_sec=stream_wait_timeout_sec,
         load_profile=load_profile,
-        watermark_delay_sec=watermark_delay_sec,
-        drop_late_events=drop_late_events,
+        topic_partitions=topic_partitions,
     )
     if warmup_source is not None and warmup_rate is not None:
         benchmark = replace(
@@ -243,7 +260,7 @@ def build_benchmark_run_plan(
                 phase="warmup",
             ),
             warmup_wait_timeout_sec=stream_wait_timeout(
-                row_count=warmup_source.table.num_rows,
+                row_count=warmup_source.expected_rows,
                 rate=warmup_rate,
                 override_seconds=warmup_stream_wait_timeout_sec,
             ),

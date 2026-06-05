@@ -3,8 +3,6 @@ from __future__ import annotations
 import os
 import sys
 
-from ids_platform.streaming.runtime.system_metrics import prime_process_metrics_probe
-
 
 def prepare_spark_environment(spark_config) -> None:
     os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
@@ -38,5 +36,4 @@ def create_spark_session(config):
         spark = spark.config("spark.jars.packages", kafka_packages)
 
     spark = spark.getOrCreate()
-    prime_process_metrics_probe()
     return spark

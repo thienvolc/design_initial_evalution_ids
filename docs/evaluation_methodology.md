@@ -22,7 +22,7 @@ Runtime no longer publishes a Kafka prediction sink. Classification quality is c
 
 The authoritative evaluation path is:
 
-- capacity calibration, Layer B, Layer C, watermark, and load-quality summary CSVs
+- capacity calibration, model-feature tradeoff, fault recovery, and overload degradation summary CSVs
 - per-run metrics time series
 - prediction parquet quality summaries
 - report plots derived from those files

@@ -20,7 +20,7 @@ The codebase uses Python modules under `src/ids_platform`, thin script entrypoin
 - SUT runtime
   - consumes Kafka records, scores them, writes prediction parquet, and publishes operational `ids.metrics`
 - evaluation matrices
-  - orchestrate capacity calibration, Layer B, Layer C, watermark, and load-quality runs
+  - orchestrate capacity calibration, model-feature tradeoff, fault recovery, and overload degradation runs
 - report artifacts
   - summary CSVs, metrics time series, prediction parquet, and plots
 

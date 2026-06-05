@@ -11,6 +11,11 @@ class ReplayPerturbation:
     def __init__(self, config: ReplayTimingConfig) -> None:
         self.config = config
 
+    def enabled(self) -> bool:
+        return self.config.reorder_window_size > 1 or (
+            self.config.late_event_ratio > 0 and self.config.late_event_max_sec > 0
+        )
+
     def apply(self, frame: pd.DataFrame, *, chunk_index: int, rng: random.Random) -> pd.DataFrame:
         if self.config.reorder_window_size > 1:
             frame = reorder_by_window(

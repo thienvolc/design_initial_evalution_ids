@@ -5,7 +5,7 @@ import re
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
@@ -13,23 +13,30 @@ if str(SRC_DIR) not in sys.path:
 import pandas as pd
 from matplotlib import rcParams
 
-LAYER_A_LABEL_ORDER = ["A_low", "A_mid", "A_high"]
+CAPACITY_LABEL_ORDER = [
+    "pass-through 500 rps",
+    "RF-Full 500 rps",
+    "pass-through 750 rps",
+    "RF-Full 750 rps",
+    "pass-through 1000 rps",
+    "RF-Full 1000 rps",
+]
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build an empirical CDF plot from streaming metrics time series CSVs"
+        description="Build an empirical CDF plot from streaming summary CSVs"
     )
     parser.add_argument(
         "--inputs",
         nargs="+",
         required=True,
-        help="CSV files containing per-batch metrics time series",
+        help="CSV files containing streaming summary rows",
     )
     parser.add_argument(
         "--metric",
         type=str,
-        default="source_to_emit_p95_ms",
+        default="e2e_p95_ms",
         help="Numeric column to visualize as an empirical CDF",
     )
     parser.add_argument(
@@ -41,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--title",
         type=str,
-        default="Empirical CDF of Source-to-Emit P95 Latency",
+        default="Empirical CDF of End-to-End P95 Latency",
         help="Plot title",
     )
     parser.add_argument(
@@ -81,16 +88,8 @@ def _short_label_from_run_tag(run_tag: str) -> str:
         match = re.search(r"_(rf_17|rf17|rf-17)_([0-9]+)rps_", normalized)
         if match:
             return f"RF-17 {match.group(2)} rps"
-    if normalized.startswith("layerc_"):
-        match = re.search(r"layerc_\d+_([a-z_]+)_", normalized)
-        if match:
-            return match.group(1)
-    if normalized.startswith("watermark_"):
-        match = re.search(r"watermark_\d+_([0-9]+s)_", normalized)
-        if match:
-            return match.group(1)
-    if normalized.startswith("load_"):
-        match = re.search(r"load_\d+_([a-z0-9_]+)_", normalized)
+    if normalized.startswith("faultrecovery_"):
+        match = re.search(r"faultrecovery_r\d+_\d+_([a-z0-9_]+)_\d+$", normalized)
         if match:
             return match.group(1)
     return run_tag
@@ -113,8 +112,8 @@ def _load_metric_series(path: Path, metric_name: str) -> tuple[str, pd.Series]:
 
 
 def _ordered_labels(labels: list[str]) -> list[str]:
-    remaining = [label for label in labels if label not in LAYER_A_LABEL_ORDER]
-    return [label for label in LAYER_A_LABEL_ORDER if label in labels] + sorted(remaining)
+    remaining = [label for label in labels if label not in CAPACITY_LABEL_ORDER]
+    return [label for label in CAPACITY_LABEL_ORDER if label in labels] + sorted(remaining)
 
 
 def main() -> int:

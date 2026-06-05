@@ -27,9 +27,8 @@ class PhaseDefinition:
 
 PHASES: dict[int, PhaseDefinition] = {
     1: PhaseDefinition("ids_platform.offline.data_loading", "run", "Ingest & Clean  -> Silver Parquet"),
-    2: PhaseDefinition("ids_platform.offline.dataset_split", "run", "Split Silver -> Gold train/valid/test"),
-    3: PhaseDefinition("ids_platform.offline.training", "run", "Train models -> Model artifacts"),
-    4: PhaseDefinition("ids_platform.offline.evaluation", "run", "Evaluate -> Test metrics & benchmark"),
+    2: PhaseDefinition("ids_platform.offline.dataset_split", "run", "Split Silver -> Gold train/calibration/test sets"),
+    3: PhaseDefinition("ids_platform.offline.spark_training", "run", "Train/calibrate/evaluate Spark models -> Artifacts"),
 }
 
 SUPPORTED_MODELS = ("logistic_regression", "random_forest", "gradient_boosting")
@@ -45,7 +44,7 @@ def parse_args() -> argparse.Namespace:
         nargs="*",
         type=int,
         default=None,
-        help="Phase numbers to run (e.g. 1 2 3 4). Default: all.",
+        help="Phase numbers to run (e.g. 1 2 3). Default: all.",
     )
     parser.add_argument(
         "--feature-set",
@@ -62,7 +61,7 @@ def parse_args() -> argparse.Namespace:
         "--models",
         nargs="*",
         default=None,
-        help="Optional model filter for phases 3 and 4 (e.g. logistic_regression random_forest). Default: all enabled models.",
+        help="Optional Spark model filter for phase 3 (e.g. logistic_regression random_forest). Default: all enabled models.",
     )
     return parser.parse_args()
 
@@ -111,7 +110,7 @@ def run_phase(phase_id: int, paths: Paths, log, *, selected_models: list[str] | 
     log.info("=" * 60)
     log.info("PHASE %d - %s", phase_id, phase_definition.description)
     log.info("=" * 60)
-    if selected_models and phase_id in (3, 4):
+    if selected_models and phase_id == 3:
         log.info("Model filter : %s", selected_models)
 
     started = time.perf_counter()

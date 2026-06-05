@@ -1,83 +1,30 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
-
-import pandas as pd
-
-if TYPE_CHECKING:
-    from pyspark.sql.column import Column
-
-_MODEL_CACHE: dict[str, object] = {}
-
-
-def _load_model(model_path: str):
-    import joblib
-
-    model = _MODEL_CACHE.get(model_path)
-    if model is None:
-        model = joblib.load(model_path)
-        _MODEL_CACHE[model_path] = model
-    return model
-
-
-def _score_frame(*, model_path: str, feature_columns: list[str], fill_values: dict[str, float], frame: pd.DataFrame):
-    import numpy as np
-
-    model = _load_model(model_path)
-    frame.columns = feature_columns
-    frame = frame.apply(pd.to_numeric, errors="coerce")
-
-    for col in feature_columns:
-        if col in fill_values:
-            frame[col] = frame[col].fillna(float(fill_values[col]))
-
-    frame = frame.fillna(0.0)
-    if hasattr(model, "predict_proba"):
-        scores = model.predict_proba(frame)[:, 1]
-    else:
-        scores = model.predict(frame)
-    return np.asarray(scores, dtype=float)
-
-
-def make_score_udf(model_path: str, feature_columns: list[str], fill_values: dict[str, float]):
-    from pyspark.sql.types import DoubleType
-    from pyspark.sql.functions import pandas_udf
-
-    @pandas_udf(DoubleType())
-    def _score_udf(*cols: pd.Series) -> pd.Series:
-        frame = pd.concat(cols, axis=1)
-        return pd.Series(
-            _score_frame(
-                model_path=model_path,
-                feature_columns=feature_columns,
-                fill_values=fill_values,
-                frame=frame,
-            )
-        )
-
-    return _score_udf
-
-
-def add_prediction_columns(
+def add_spark_ml_prediction_columns(
     prepared_df,
     *,
-    score_udf,
-    feature_columns: list[str],
+    model_path: str,
     threshold: float,
     model_name: str,
     feature_set: str,
     run_tag: str,
 ):
     from pyspark.sql import functions as F
+    from pyspark.ml.functions import vector_to_array
+    from pyspark.ml import PipelineModel
 
-    prediction_score_column = cast(
-        "Column",
-        score_udf(*[F.col(feature_name) for feature_name in feature_columns]),
-    )
-    prediction_label_condition = cast(
-        "Column",
-        prediction_score_column >= F.lit(threshold),
-    )
+    model = PipelineModel.load(model_path)
+    transformed_df = model.transform(prepared_df)
+    if "probability" in transformed_df.columns:
+        prediction_score_column = vector_to_array(F.col("probability")).getItem(1)
+    elif "raw_prediction" in transformed_df.columns:
+        prediction_score_column = vector_to_array(F.col("raw_prediction")).getItem(1)
+    elif "rawPrediction" in transformed_df.columns:
+        prediction_score_column = vector_to_array(F.col("rawPrediction")).getItem(1)
+    else:
+        prediction_score_column = F.col("spark_prediction").cast("double")
+
+    prediction_label_condition = prediction_score_column >= F.lit(float(threshold))
     projected_columns = [F.col(column_name) for column_name in prepared_df.columns]
     projected_columns.extend(
         [
@@ -90,7 +37,7 @@ def add_prediction_columns(
             F.lit(float(threshold)).alias("threshold_used"),
         ]
     )
-    return prepared_df.select(*projected_columns)
+    return transformed_df.select(*projected_columns)
 
 
 def add_passthrough_prediction_columns(

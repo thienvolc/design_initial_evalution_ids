@@ -2,66 +2,32 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
-
-import pandas as pd
 
 from ids_platform.streaming.replay.config import ReplayRuntimeConfig
-from ids_platform.streaming.replay.serializer import replay_record_to_json
+from ids_platform.streaming.replay.encoder import EncodedReplayRecord
 
 
 @dataclass(frozen=True, slots=True)
-class ReplayRecordBuilder:
-    run_tag: str
-    phase: str = "measure"
-
-    def build_replay_record(self, row: pd.Series, *, row_index: int) -> pd.Series:
-        ingest_time = time.time()
-
-        record = row.copy()
-        record["source_ingest_ts"] = datetime.fromtimestamp(
-            ingest_time,
-            tz=timezone.utc,
-        ).isoformat()
-        record["source_ingest_epoch_ms"] = int(ingest_time * 1000)
-        record["replay_run_tag"] = self.run_tag
-        record["replay_row_index"] = row_index
-        record["benchmark_phase"] = self.phase
-        return record
-
-    def build_input_sentinel_record(self) -> dict[str, Any]:
-        now = datetime.now(timezone.utc)
-        now_iso = now.isoformat()
-        epoch_ms = int(now.timestamp() * 1000)
-        run_tag = self.run_tag
-
-        return {
-            "flow_id": f"{run_tag}__input_sentinel",
-            "replay_run_tag": run_tag,
-            "benchmark_phase": "control",
-            "event_time": now_iso,
-            "timestamp": now_iso,
-            "source_ingest_ts": now_iso,
-            "source_ingest_epoch_ms": epoch_ms,
-            "label_binary": None,
-            "label": None,
-            "is_control_record": 1,
-            "control_type": "input_sentinel",
-        }
+class ReplayPublisherStats:
+    produced_count: int
+    buffer_stall_count: int
+    buffer_stall_sec: float
+    flush_sec: float
 
 
 def create_producer(bootstrap_servers: str):
     from confluent_kafka import Producer
 
-    config = {
-        "bootstrap.servers": bootstrap_servers,
-        "enable.idempotence": True,
-        "acks": "all",
-        "retries": 3,
-    }
-
-    return Producer(config)
+    return Producer(
+        {
+            "bootstrap.servers": bootstrap_servers,
+            "enable.idempotence": True,
+            "acks": "all",
+            "retries": 3,
+            "linger.ms": 0,
+            "queue.buffering.max.messages": 1_000_000,
+        }
+    )
 
 
 class ReplayPublisher:
@@ -70,27 +36,29 @@ class ReplayPublisher:
         self.topic = config.topic
         self.run_tag = config.run_tag
         self.delivery_failures: list[str] = []
+        self.produced_count = 0
+        self.buffer_stall_count = 0
+        self.buffer_stall_sec = 0.0
+        self.flush_sec = 0.0
 
-    def publish_record(self, record: pd.Series) -> None:
-        self._produce(
-            key=str(record["flow_id"]),
-            value=replay_record_to_json(record),
-        )
+    def publish(self, record: EncodedReplayRecord) -> None:
+        self._produce(key=record.key, value=record.value)
+        self.produced_count += 1
 
-    def publish_sentinel(self, sentinel_record: dict[str, Any]):
-        self._produce(
-            key=str(sentinel_record["flow_id"]),
-            value=replay_record_to_json(pd.Series(sentinel_record)),
-        )
-
+    def publish_sentinel(self, record: EncodedReplayRecord):
+        self.publish(record)
         self.flush_or_raise("sentinel publish")
 
+    def poll(self, timeout: float = 0.0) -> None:
+        self.producer.poll(float(timeout))
+
     def flush_or_raise(self, phase: str, *, chunk_index: int | None = None) -> None:
+        started_at = time.perf_counter()
         remaining_messages = self.producer.flush()
+        self.flush_sec += time.perf_counter() - started_at
 
         if remaining_messages:
             chunk_detail = f" chunk_index={chunk_index}" if chunk_index is not None else ""
-
             self.delivery_failures.append(
                 f"flush_incomplete topic={self.topic}{chunk_detail} "
                 f"remaining_messages={remaining_messages}"
@@ -103,6 +71,14 @@ class ReplayPublisher:
                 f"for run_tag={self.run_tag}.\n{details}"
             )
 
+    def stats(self) -> ReplayPublisherStats:
+        return ReplayPublisherStats(
+            produced_count=int(self.produced_count),
+            buffer_stall_count=int(self.buffer_stall_count),
+            buffer_stall_sec=float(self.buffer_stall_sec),
+            flush_sec=float(self.flush_sec),
+        )
+
     def _on_delivery(self, error, message) -> None:
         if error is None:
             return
@@ -112,9 +88,17 @@ class ReplayPublisher:
         )
 
     def _produce(self, *, key: str, value: str) -> None:
-        self.producer.produce(
-            topic=self.topic,
-            key=key,
-            value=value,
-            on_delivery=self._on_delivery,
-        )
+        while True:
+            try:
+                self.producer.produce(
+                    topic=self.topic,
+                    key=key,
+                    value=value,
+                    on_delivery=self._on_delivery,
+                )
+                return
+            except BufferError:
+                self.buffer_stall_count += 1
+                started_at = time.perf_counter()
+                self.poll(0.1)
+                self.buffer_stall_sec += time.perf_counter() - started_at

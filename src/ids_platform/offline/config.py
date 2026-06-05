@@ -79,33 +79,13 @@ def load_label_mapping(path: Path) -> dict[str, str]:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Preprocessing config  (expanded for sampling, feature selection, etc.)
+# Preprocessing config
 # ══════════════════════════════════════════════════════════════════════
 
 
 @dataclass(frozen=True)
 class SamplingConfig:
-    strategy: str = "class_weight"      # class_weight | undersample | smote
-    undersample_ratio: float = 1.0      # target minority / majority
-    smote_ratio: float = 0.5
-    smote_max_rows: int = 2_000_000     # auto-subsample before SMOTE if larger
-
-
-@dataclass(frozen=True)
-class MemoryConfig:
-    max_train_rows: int | None = None   # None = load all
-    max_train_feature_cells: int | None = None
-
-
-@dataclass(frozen=True)
-class FeatureSelectionConfig:
-    enabled: bool = False
-    strategy: str = "topk"            # topk | hybrid | manual
-    method: str = "f_classif"           # f_classif | chi2 | mutual_info
-    k: int = 20
-    candidate_registry: str | None = None
-    required_registry: str | None = None
-    apply_feature_sets: tuple[str, ...] = ("reduced",)
+    strategy: str = "class_weight"
 
 
 @dataclass(frozen=True)
@@ -118,10 +98,7 @@ class ModelToggle:
 @dataclass(frozen=True)
 class PreprocessingConfig:
     impute_strategy: str = "median"
-    scale_enabled: bool = True
     sampling: SamplingConfig = SamplingConfig()
-    memory: MemoryConfig = MemoryConfig()
-    feature_selection: FeatureSelectionConfig = FeatureSelectionConfig()
     models: list[ModelToggle] = field(default_factory=list)
 
     def with_selected_models(self, selected_models: list[str] | tuple[str, ...] | None) -> PreprocessingConfig:
@@ -143,10 +120,7 @@ class PreprocessingConfig:
         ]
         return PreprocessingConfig(
             impute_strategy=self.impute_strategy,
-            scale_enabled=self.scale_enabled,
             sampling=self.sampling,
-            memory=self.memory,
-            feature_selection=self.feature_selection,
             models=filtered_models,
         )
 
@@ -156,47 +130,15 @@ class PreprocessingConfig:
         data = load_yaml(path)
 
         imputer_config = data.get("imputer") or {}
-        scaler_config = data.get("scaler") or {}
         sampling_config = data.get("sampling") or {}
-        memory_config = data.get("memory") or {}
-        feature_selection_config = data.get("feature_selection") or {}
         model_section = data.get("models") or {}
 
         models = _parse_model_toggles(model_section)
 
         return cls(
             impute_strategy=str(imputer_config.get("numeric_strategy", "median")),
-            scale_enabled=bool(scaler_config.get("enabled", True)),
             sampling=SamplingConfig(
                 strategy=str(sampling_config.get("strategy", "class_weight")),
-                undersample_ratio=float(sampling_config.get("undersample_ratio", 1.0)),
-                smote_ratio=float(sampling_config.get("smote_ratio", 0.5)),
-                smote_max_rows=int(sampling_config.get("smote_max_rows", 2_000_000)),
-            ),
-            memory=MemoryConfig(
-                max_train_rows=memory_config.get("max_train_rows"),
-                max_train_feature_cells=memory_config.get("max_train_feature_cells"),
-            ),
-            feature_selection=FeatureSelectionConfig(
-                enabled=bool(feature_selection_config.get("enabled", False)),
-                strategy=str(feature_selection_config.get("strategy", "topk")),
-                method=str(feature_selection_config.get("method", "f_classif")),
-                k=int(feature_selection_config.get("k", 20)),
-                candidate_registry=(
-                    str(feature_selection_config.get("candidate_registry")).strip()
-                    if feature_selection_config.get("candidate_registry") not in (None, "")
-                    else None
-                ),
-                required_registry=(
-                    str(feature_selection_config.get("required_registry")).strip()
-                    if feature_selection_config.get("required_registry") not in (None, "")
-                    else None
-                ),
-                apply_feature_sets=tuple(
-                    str(item).strip()
-                    for item in (feature_selection_config.get("apply_feature_sets") or ["reduced"])
-                    if str(item).strip()
-                ),
             ),
             models=models,
         )

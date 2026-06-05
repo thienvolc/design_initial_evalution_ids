@@ -1,48 +1,11 @@
 # ── Preprocessing & Training Configuration ──────────────────────────
 
 imputer:
-  numeric_strategy: median        # median | mean | most_frequent
-
-scaler:
-  enabled: true                   # StandardScaler trước LR (RF/GBT không cần)
+  numeric_strategy: median
 
 # ── Sampling ────────────────────────────────────────────────────────
-# Dataset CSE-CIC-IDS2018: ~84% benign / 16% attack → imbalanced
-#
-# Strategies:
-#   class_weight  – sklearn class_weight="balanced" (free, no data change)
-#   undersample   – random undersample majority class
-#   smote         – SMOTE on minority (auto-subsample nếu data > smote_max_rows)
-#
 sampling:
-  strategy: class_weight          # class_weight | undersample | smote
-  undersample_ratio: 1.0          # minority/majority target ratio (1.0 = balanced)
-  smote_ratio: 0.5                # SMOTE target ratio if strategy=smote
-  smote_max_rows: 2000000         # auto-subsample trước SMOTE nếu data > này
-
-# ── Memory management ──────────────────────────────────────────────
-# 14.8M rows × 78 features có thể cần > 16GB RAM.
-# max_train_rows: giới hạn số rows load vào RAM (stratified sample).
-# null = dùng toàn bộ.
-memory:
-  max_train_rows: 6000000           # null | int — increased from 2M for better coverage
-  max_train_feature_cells: 125000000  # practical local budget; lets full use ~1.6M rows at 78 features
-
-# ── Feature Selection ──────────────────────────────────────────────
-# Chạy sau imputer, trước model.  Kết quả lưu vào feature_manifest.
-# Methods:
-#   f_classif      – ANOVA F-value (nhanh, robust)
-#   chi2           – Chi-squared (paper 06 gợi ý, cần data ≥ 0)
-#   mutual_info    – Mutual information (chậm nhưng capture nonlinear)
-#
-feature_selection:
-  enabled: true                   # Applied only to reduced artifacts for benchmark.
-  strategy: hybrid                # manual | topk | hybrid
-  method: mutual_info             # f_classif | chi2 | mutual_info
-  k: 17                           # target total features for reduced benchmark (or 20)
-  candidate_registry: configs/modeling/feature_registry_full.yaml
-  required_registry: configs/modeling/feature_registry_reduced_anchor.yaml
-  apply_feature_sets: [reduced]
+  strategy: class_weight
 
 # ── Models ─────────────────────────────────────────────────────────
 models:
@@ -52,7 +15,7 @@ models:
     C: 1.0
 
   random_forest:
-    enabled: true                # disabled for speed (re-enable after LR/GBT validated)
+    enabled: true
     n_estimators: 96
     max_depth: 18
     min_samples_leaf: 32
@@ -60,7 +23,6 @@ models:
     # max_depth: 16
     # min_samples_leaf: 48
 
-  # GBT maps trực tiếp sang Spark MLlib GBTClassifier.
   gradient_boosting:
     enabled: true
     n_estimators: 400             # more trees

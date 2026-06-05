@@ -8,13 +8,11 @@ Use this file to find the right module before changing code.
   - launches offline preprocessing, training, and evaluation
 - `scripts/streaming/official/run_capacity_calibration.py`
   - runs the capacity calibration smoke gate by default
-- `scripts/streaming/official/run_layer_b_matrix.py`
+- `scripts/streaming/official/run_model_feature_tradeoff.py`
   - runs model and feature-set smoke gate by default
-- `scripts/streaming/official/run_layer_c_matrix.py`
+- `scripts/streaming/official/run_fault_recovery.py`
   - runs checkpoint/restart recovery smoke gate by default
-- `scripts/streaming/official/run_watermark_matrix.py`
-  - runs late-event and watermark smoke gate by default
-- `scripts/streaming/official/run_load_quality_matrix.py`
+- `scripts/streaming/official/run_overload_degradation.py`
   - runs quality-under-load smoke gate by default
 - `scripts/streaming/official/build_timeseries_plots.py`
   - renders plots from already-produced metrics time series CSV files
@@ -45,14 +43,12 @@ The streaming scripts are config-driven. Defaults are smoke gates; use the main 
   - runtime artifact paths, model thresholds, and `RuntimeConfig` builder
 - `src/ids_platform/streaming/config/calibration.py`
   - capacity calibration configs and operating-point run plans
-- `src/ids_platform/streaming/config/layer_b.py`
-  - Layer B model/feature configs
-- `src/ids_platform/streaming/config/layer_c.py`
-  - Layer C recovery configs
-- `src/ids_platform/streaming/config/watermark.py`
-  - watermark configs
-- `src/ids_platform/streaming/config/load_quality.py`
-  - quality-under-load configs
+- `src/ids_platform/streaming/config/model_feature_tradeoff.py`
+  - model/feature tradeoff configs
+- `src/ids_platform/streaming/config/fault_recovery.py`
+  - checkpoint/restart recovery configs
+- `src/ids_platform/streaming/config/overload_degradation.py`
+  - overload degradation configs
 
 ## Streaming Runtime
 

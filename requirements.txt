@@ -1,17 +1,13 @@
 # Offline IDS Pipeline – CSE-CIC-IDS2018
 pandas==2.2.2
 numpy==1.26.4
-scikit-learn==1.8.0
-joblib==1.5.3
 pyarrow==15.0.2
 PyYAML==6.0.2
-
-# Optional: only needed if sampling.strategy = smote
-imbalanced-learn==0.12.4
+pandas-stubs~=2.2.2
 
 # Streaming
 pyspark==3.5.6
-confluent-kafka== 2.14.0
+confluent-kafka==2.14.0
 
 # Phase 2 dashboard (optional)
 matplotlib==3.9.2

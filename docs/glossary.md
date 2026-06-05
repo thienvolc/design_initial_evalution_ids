@@ -33,7 +33,7 @@ Operating-point evaluation for the streaming SUT. Typical focus:
 - batch wall time
 - Kafka lag
 
-## Layer B
+## Model-Feature Tradeoff
 
 Model and feature-set evaluation in the streaming context. Typical focus:
 
@@ -41,17 +41,13 @@ Model and feature-set evaluation in the streaming context. Typical focus:
 - feature-set choice
 - quality/operation tradeoff under the streaming runtime
 
-## Layer C
+## Fault Recovery
 
 Fault and recovery evaluation. The active recovery mechanism is checkpoint-based restart plus input sentinel coordination.
 
-## Watermark Matrix
+## Overload Degradation
 
-Experiment set for late-event handling and watermark delay behavior.
-
-## Load-Quality Matrix
-
-Experiment set for detection quality under different input pressure/load profiles.
+Experiment set for runtime degradation when replay pressure exceeds sustainable processing capacity.
 
 ## `run_tag`
 

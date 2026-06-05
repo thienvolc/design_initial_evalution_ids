@@ -112,3 +112,61 @@ def summarize_prediction_quality(artifact_output: Path, *, phase: str = "measure
         "avg_prediction_score_weighted": avg_prediction_score,
         "attack_ratio_weighted": float(predictions.mean()),
     }
+
+
+def summarize_prediction_latency(artifact_output: Path, *, phase: str = "measure") -> dict:
+    path = Path(artifact_output)
+    if not path.exists():
+        return {"latency_status": "latency_missing", "artifact_rows_total": 0}
+    if path.is_dir() and not any(path.glob("*.parquet")):
+        return {"latency_status": "latency_missing", "artifact_rows_total": 0}
+
+    import pandas as pd
+
+    columns = [
+        "benchmark_phase",
+        "emit_time",
+        "source_to_ingest_ms",
+        "processing_ms",
+        "end_to_end_ms",
+    ]
+    frame = pd.read_parquet(path, columns=columns)
+    if phase and "benchmark_phase" in frame.columns:
+        expected_phase = str(phase).strip().lower()
+        if expected_phase:
+            phases = frame["benchmark_phase"].fillna("measure").astype(str).str.lower()
+            frame = frame[phases == expected_phase]
+    if frame.empty:
+        return {"latency_status": "no_predictions", "artifact_rows_total": 0}
+
+    def percentile(column_name: str, quantile: float) -> float | None:
+        values = pd.to_numeric(frame[column_name], errors="coerce").dropna()
+        if values.empty:
+            return None
+        return float(values.quantile(float(quantile)))
+
+    emit_times = pd.to_datetime(frame["emit_time"], errors="coerce").dropna()
+    emit_wall_clock_sec = None
+    drain_rps = None
+    if not emit_times.empty:
+        span = (emit_times.max() - emit_times.min()).total_seconds()
+        if span > 0:
+            emit_wall_clock_sec = float(span)
+            drain_rps = float(len(frame) / span)
+
+    return {
+        "latency_status": "ok",
+        "artifact_rows_total": int(len(frame)),
+        "rows_total": int(len(frame)),
+        "measure_wall_clock_sec": emit_wall_clock_sec,
+        "drain_rps": drain_rps,
+        "artifact_source_p50_ms": percentile("source_to_ingest_ms", 0.50),
+        "artifact_source_p95_ms": percentile("source_to_ingest_ms", 0.95),
+        "artifact_source_p99_ms": percentile("source_to_ingest_ms", 0.99),
+        "artifact_processing_p50_ms": percentile("processing_ms", 0.50),
+        "artifact_processing_p95_ms": percentile("processing_ms", 0.95),
+        "artifact_processing_p99_ms": percentile("processing_ms", 0.99),
+        "artifact_e2e_p50_ms": percentile("end_to_end_ms", 0.50),
+        "artifact_e2e_p95_ms": percentile("end_to_end_ms", 0.95),
+        "artifact_e2e_p99_ms": percentile("end_to_end_ms", 0.99),
+    }

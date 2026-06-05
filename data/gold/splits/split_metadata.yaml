@@ -1,18 +1,10 @@
-version: 7
-strategy: day_block
+version: 8
+strategy: train_pool_hash_split_plus_temporal_tests
 task: binary_classification
 target_column: label_binary
-evaluation_scope:
-  online_task: binary_detection
-  offline_analysis:
-  - per_attack_recall
-  - attack_family_breakdown
 n_rows_total: 15821973
 n_skipped: 0
-n_train: 13401869
-n_valid: 1045961
-n_test: 1374143
-train_days:
+train_pool_days:
 - '2018-02-14'
 - '2018-02-15'
 - '2018-02-16'
@@ -20,88 +12,170 @@ train_days:
 - '2018-02-21'
 - '2018-02-22'
 - '2018-02-28'
-valid_days:
-- '2018-02-23'
-test_days:
-- '2018-03-01'
-- '2018-03-02'
-train_time_range:
-- '2018-02-14 01:00:00'
-- '2018-02-28 12:59:59'
-valid_time_range:
-- '2018-02-23 01:00:00'
-- '2018-02-23 12:59:59'
-test_time_range:
-- '2018-03-01 01:00:00'
-- '2018-03-02 12:59:59'
-attack_type_coverage:
-  train:
-  - Brute Force -Web
-  - Brute Force -XSS
-  - DDOS attack-HOIC
-  - DDOS attack-LOIC-UDP
-  - DDoS attacks-LOIC-HTTP
-  - DoS attacks-GoldenEye
-  - DoS attacks-Hulk
-  - DoS attacks-SlowHTTPTest
-  - DoS attacks-Slowloris
-  - FTP-BruteForce
-  - Infilteration
-  - SQL Injection
-  - SSH-Bruteforce
-  valid:
-  - Brute Force -Web
-  - Brute Force -XSS
-  - SQL Injection
+train_pool_ratios:
+  train_fit: 0.7
+  feature_select: 0.15
+  calibration: 0.15
+final_tests:
+  test_seen_temporal:
+  - '2018-03-01'
+  test_unseen_family:
+  - '2018-03-02'
+  test_rare_web:
+  - '2018-02-23'
   test:
-  - Bot
-  - Infilteration
-  seen_in_test:
-  - Infilteration
-  unseen_in_valid: []
-  unseen_in_test:
-  - Bot
-attack_family_counts:
-  train:
-    DDOS attack-HOIC: 668461
-    DDoS attacks-LOIC-HTTP: 576191
-    DoS attacks-Hulk: 434873
-    SSH-Bruteforce: 117322
-    Infilteration: 68857
-    DoS attacks-GoldenEye: 41455
-    FTP-BruteForce: 39352
-    DoS attacks-SlowHTTPTest: 19462
-    DoS attacks-Slowloris: 10285
-    DDOS attack-LOIC-UDP: 1730
-    Brute Force -Web: 249
-    Brute Force -XSS: 79
-    SQL Injection: 34
-  valid:
-    Brute Force -Web: 362
-    Brute Force -XSS: 151
-    SQL Injection: 53
+  - '2018-03-01'
+  - '2018-03-02'
+split_roles:
+  train_fit: fit model parameters
+  feature_select: rank/select reduced features
+  calibration: select model and operating threshold
+  test_seen_temporal: final temporal test for seen attack family
+  test_unseen_family: final zero-day family test
+  test_rare_web: optional rare Web attack diagnostic
+  test: combined test_seen_temporal + test_unseen_family compatibility set
+splits:
+  train_fit:
+      path: data/gold/splits/train_fit.parquet
+    n_rows: 9380520
+    time_range:
+    - '2018-02-14 01:00:00'
+    - '2018-02-28 12:59:59'
+    class_coverage:
+    - label: '0'
+      count: 7995494
+      ratio: 0.852351
+    - label: '1'
+      count: 1385026
+      ratio: 0.147649
+    attack_family_counts:
+      DDOS attack-HOIC: 468189
+      DDoS attacks-LOIC-HTTP: 403101
+      DoS attacks-Hulk: 304670
+      SSH-Bruteforce: 82136
+      Infilteration: 48212
+      DoS attacks-GoldenEye: 29080
+      FTP-BruteForce: 27454
+      DoS attacks-SlowHTTPTest: 13517
+      DoS attacks-Slowloris: 7207
+      DDOS attack-LOIC-UDP: 1207
+      Brute Force -Web: 181
+      Brute Force -XSS: 51
+      SQL Injection: 21
+  feature_select:
+      path: data/gold/splits/feature_select.parquet
+    n_rows: 2011286
+    time_range:
+    - '2018-02-14 01:00:03'
+    - '2018-02-28 12:59:57'
+    class_coverage:
+    - label: '0'
+      count: 1715423
+      ratio: 0.852899
+    - label: '1'
+      count: 295863
+      ratio: 0.147101
+    attack_family_counts:
+      DDOS attack-HOIC: 100028
+      DDoS attacks-LOIC-HTTP: 86548
+      DoS attacks-Hulk: 64613
+      SSH-Bruteforce: 17336
+      Infilteration: 10371
+      DoS attacks-GoldenEye: 6156
+      FTP-BruteForce: 5979
+      DoS attacks-SlowHTTPTest: 2973
+      DoS attacks-Slowloris: 1545
+      DDOS attack-LOIC-UDP: 268
+      Brute Force -Web: 29
+      Brute Force -XSS: 11
+      SQL Injection: 6
+  calibration:
+      path: data/gold/splits/calibration.parquet
+    n_rows: 2010063
+    time_range:
+    - '2018-02-14 01:00:00'
+    - '2018-02-28 12:59:58'
+    class_coverage:
+    - label: '0'
+      count: 1712602
+      ratio: 0.852014
+    - label: '1'
+      count: 297461
+      ratio: 0.147986
+    attack_family_counts:
+      DDOS attack-HOIC: 100244
+      DDoS attacks-LOIC-HTTP: 86542
+      DoS attacks-Hulk: 65590
+      SSH-Bruteforce: 17850
+      Infilteration: 10274
+      DoS attacks-GoldenEye: 6219
+      FTP-BruteForce: 5919
+      DoS attacks-SlowHTTPTest: 2972
+      DoS attacks-Slowloris: 1533
+      DDOS attack-LOIC-UDP: 255
+      Brute Force -Web: 39
+      Brute Force -XSS: 17
+      SQL Injection: 7
+  test_seen_temporal:
+      path: data/gold/splits/test_seen_temporal.parquet
+    n_rows: 331027
+    time_range:
+    - '2018-03-01 01:00:00'
+    - '2018-03-01 12:59:59'
+    class_coverage:
+    - label: '0'
+      count: 237987
+      ratio: 0.718935
+    - label: '1'
+      count: 93040
+      ratio: 0.281065
+    attack_family_counts:
+      Infilteration: 93040
+  test_unseen_family:
+      path: data/gold/splits/test_unseen_family.parquet
+    n_rows: 1043116
+    time_range:
+    - '2018-03-02 01:00:00'
+    - '2018-03-02 12:59:59'
+    class_coverage:
+    - label: '0'
+      count: 760806
+      ratio: 0.729359
+    - label: '1'
+      count: 282310
+      ratio: 0.270641
+    attack_family_counts:
+      Bot: 282310
+  test_rare_web:
+      path: data/gold/splits/test_rare_web.parquet
+    n_rows: 1045961
+    time_range:
+    - '2018-02-23 01:00:00'
+    - '2018-02-23 12:59:59'
+    class_coverage:
+    - label: '0'
+      count: 1045395
+      ratio: 0.999459
+    - label: '1'
+      count: 566
+      ratio: 0.000541
+    attack_family_counts:
+      Brute Force -Web: 362
+      Brute Force -XSS: 151
+      SQL Injection: 53
   test:
-    Bot: 282310
-    Infilteration: 93040
-class_coverage:
-  train:
-  - label: '0'
-    count: 11423519
-    ratio: 0.852383
-  - label: '1'
-    count: 1978350
-    ratio: 0.147617
-  valid:
-  - label: '0'
-    count: 1045395
-    ratio: 0.999459
-  - label: '1'
-    count: 566
-    ratio: 0.000541
-  test:
-  - label: '0'
-    count: 998793
-    ratio: 0.726848
-  - label: '1'
-    count: 375350
-    ratio: 0.273152
+      path: data/gold/splits/test.parquet
+    n_rows: 1374143
+    time_range:
+    - '2018-03-01 01:00:00'
+    - '2018-03-02 12:59:59'
+    class_coverage:
+    - label: '0'
+      count: 998793
+      ratio: 0.726848
+    - label: '1'
+      count: 375350
+      ratio: 0.273152
+    attack_family_counts:
+      Bot: 282310
+      Infilteration: 93040

@@ -8,21 +8,19 @@ The active paper flow is:
 1. Build a config in `src/ids_platform/streaming/config/`.
 2. Run a matrix script from `scripts/streaming/official/`.
 3. Replay writes Kafka input records.
-4. Runtime writes prediction parquet artifacts and operational `ids.metrics`.
-5. Evaluation merges operational metrics with parquet quality summaries into CSV outputs.
+4. Runtime writes minimal prediction responses to a per-run Kafka topic.
+5. Evaluation collects prediction responses, joins labels from input Kafka offsets, writes parquet artifacts, and summarizes CSV outputs.
 
 YAML profile runners, old benchmark scripts, and external dashboard assets were removed because they were not authoritative inputs for the report.
 
 ## Active Entrypoints
 
 - `official/run_capacity_calibration.py`
-- `official/run_layer_b_matrix.py`
-- `official/run_layer_c_matrix.py`
-- `official/run_watermark_matrix.py`
-- `official/run_load_quality_matrix.py`
-- `official/build_timeseries_plots.py`
+- `official/run_model_feature_tradeoff.py`
+- `official/run_fault_recovery.py`
+- `official/run_overload_degradation.py`
 
-`official/run_structured_streaming.py` and `official/replay_parquet_to_kafka.py` remain thin debug entrypoints. Normal runs should go through the matrix scripts so sentinel, metrics collection, and quality summarization stay coordinated.
+Normal runs should go through the matrix scripts so sentinel, response collection, Kafka lag sampling, resource sampling, and quality summarization stay coordinated.
 
 ## Docker Path
 
@@ -40,6 +38,6 @@ Run `official/run_capacity_calibration.py` as the capacity section's operating-p
 ## Report Artifacts
 
 - Summary CSVs: `artifacts/streaming/evaluation/`
-- Per-run metrics time series: `artifacts/streaming/metrics_timeseries/`
+- Per-run Kafka lag time series: `artifacts/streaming/kafka_lag_timeseries/`
 - Prediction parquet artifacts: `artifacts/streaming/predictions/`
 - Plots: `artifacts/streaming/plots/`

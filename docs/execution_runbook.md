@@ -42,10 +42,9 @@ Run smoke gates:
 
 ```powershell
 docker compose exec -T ids-dev python scripts/streaming/official/run_capacity_calibration.py
-docker compose exec -T ids-dev python scripts/streaming/official/run_layer_b_matrix.py
-docker compose exec -T ids-dev python scripts/streaming/official/run_watermark_matrix.py
-docker compose exec -T ids-dev python scripts/streaming/official/run_layer_c_matrix.py
-docker compose exec -T ids-dev python scripts/streaming/official/run_load_quality_matrix.py
+docker compose exec -T ids-dev python scripts/streaming/official/run_model_feature_tradeoff.py
+docker compose exec -T ids-dev python scripts/streaming/official/run_fault_recovery.py
+docker compose exec -T ids-dev python scripts/streaming/official/run_overload_degradation.py
 ```
 
 For paper-scale runs, switch the selected config object in the relevant module from the smoke preset to the corresponding `build_*_main_config()` result before running the script.

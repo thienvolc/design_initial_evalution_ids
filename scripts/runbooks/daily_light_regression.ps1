@@ -8,9 +8,8 @@ docker compose up -d zookeeper kafka ids-dev
 $scripts = @(
   "scripts/streaming/official/run_capacity_calibration.py",
   "scripts/streaming/official/run_model_feature_tradeoff.py",
-  "scripts/streaming/official/run_watermark_matrix.py",
-  "scripts/streaming/official/run_layer_c_matrix.py",
-  "scripts/streaming/official/run_load_quality_matrix.py"
+  "scripts/streaming/official/run_fault_recovery.py",
+  "scripts/streaming/official/run_overload_degradation.py"
 )
 
 foreach ($script in $scripts) {
